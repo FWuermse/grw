@@ -1,0 +1,16 @@
+name = "grw"
+version = "0.1.0"
+defaultTargets = ["Grw"]
+
+[[lean_lib]]
+name = "Grw"
+
+[[require]]
+name = "batteries"
+git = "https://github.com/leanprover-community/batteries"
+rev = "main"
+
+[[require]]
+name = "aesop"
+git = "https://github.com/leanprover-community/aesop"
+rev = "master"
