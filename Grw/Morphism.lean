@@ -1,8 +1,8 @@
-import Aesop
+def Relation (α : Sort u) := α → α → Prop
 
-abbrev Relation (α : Sort u) := α → α → Prop
+def Impl (α β : Prop) : Prop := α → β
 
-abbrev Impl := (. → .)
+def All (α : Type) (P : α -> Prop) := ∀ x : α, P x
 
 def Relation.inverse {α : Sort u} (r : Relation α) : α → α → Prop :=
 λ x y => r y x
@@ -97,7 +97,7 @@ instance respectfulSubrelation [rs : Subrel r₂ r₁] [ss : Subrel s₁ s₂] :
   apply p
   exact rs.subrelation x y rxy)
 
---instance : Proper (Subrel ⟹ Subrel) (@pointwiseRelation α β) := sorry
+--instance : Proper (@Subrel β ⟹ @Subrel (α → β)) (@pointwiseRelation α β) := sorry
 
 instance subrelationPointwise α [sub : @Subrel β r r'] : Subrel (pointwiseRelation α r) (pointwiseRelation α r') := Subrel.mk (by
   intro f g pr a
