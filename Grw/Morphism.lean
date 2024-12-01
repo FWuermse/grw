@@ -1,3 +1,5 @@
+import Aesop
+
 def Relation (α : Sort u) := α → α → Prop
 
 def Impl (α β : Prop) : Prop := α → β
@@ -65,49 +67,82 @@ instance notIffMorphism : Proper (respectful Iff Iff) Not :=
 notation:55 r " ⟹ " r' => respectful r r'
 notation:55 r " ⟶ " r' => respectful r⁻¹ r'
 
-instance contraposedMorphism : Proper (Impl ⟶ Impl) Not :=
-  Proper.mk (by
-    intro a b f na
-    rw [Relation.inverse, Not] at *
-    apply contrapositive (f) (na))
+instance contraposedMorphism : Proper (Impl ⟶ Impl) Not := by
+  apply Proper.mk
+  intro a b f na
+  rw [Relation.inverse, Not] at *
+  apply contrapositive (f) (na)
 
-instance transMorphism [Transitive r] : Proper (r ⟶ r ⟹ Impl) r :=
-  Proper.mk (by
-    intro a b iab c d r r'
-    rw [Relation.inverse] at iab
-    apply Transitive.trans
-    apply iab
-    apply Transitive.trans <;>
-    assumption)
+instance transMorphism [Transitive r] : Proper (r ⟶ r ⟹ Impl) r := by
+  apply Proper.mk
+  intro a b iab c d r r'
+  rw [Relation.inverse] at iab
+  apply Transitive.trans
+  apply iab
+  apply Transitive.trans <;>
+  assumption
 
-def pointwiseRelation α {β} (r : Relation β) : Relation (α → β) :=
+def pointwiseRelation (α : Sort u) {β : Sort u} (r : Relation β) : Relation (α → β) :=
   fun f g => ∀ a, r (f a) (g a)
 
 def all (α : Type) (p : α -> Prop) :=
   ∀x, p x
 
-instance flipProper [mor : Proper (rα ⟹ rβ ⟹ rφ) f] : Proper (rβ ⟹ rα ⟹ rφ) (flip f) := Proper.mk (by
+instance flipProper [mor : Proper (rα ⟹ rβ ⟹ rφ) f] : Proper (rβ ⟹ rα ⟹ rφ) (flip f) := by
+  apply Proper.mk
   intro b₁ b₂ rb a₁ a₂ ra
   apply mor.proper
-  repeat assumption)
+  repeat assumption
 
-instance respectfulSubrelation [rs : Subrel r₂ r₁] [ss : Subrel s₁ s₂] : Subrel (r₁ ⟹ s₁) (r₂ ⟹ s₂) := Subrel.mk (by
+instance respectfulSubrelation [rs : Subrel r₂ r₁] [ss : Subrel s₁ s₂] : Subrel (r₁ ⟹ s₁) (r₂ ⟹ s₂) := by
+  apply Subrel.mk
   intro f f' p x y rxy
   apply ss.subrelation
   apply p
-  exact rs.subrelation x y rxy)
+  exact rs.subrelation x y rxy
 
---instance : Proper (@Subrel β ⟹ @Subrel (α → β)) (@pointwiseRelation α β) := sorry
+instance : Proper (Subrel ⟹ Subrel) (@pointwiseRelation α β) := by
+  apply Proper.mk
+  intro rb rb' sr
+  apply Subrel.mk
+  intro f g hfg x
+  apply sr.subrelation
+  apply hfg
 
-instance subrelationPointwise α [sub : @Subrel β r r'] : Subrel (pointwiseRelation α r) (pointwiseRelation α r') := Subrel.mk (by
+instance subrelationPointwise α [sub : @Subrel β r r'] : Subrel (pointwiseRelation α r) (pointwiseRelation α r') := by
+  apply Subrel.mk
   intro f g pr a
   apply sub.subrelation
-  apply pr)
+  apply pr
 
-/-
+universe u v
+
+inductive Tlist : Sort (max u v + 1)
+| tnil : Tlist
+| tcons : Sort v → Tlist → Tlist
+
+local infix:65 "∶∶" => Tlist.tcons
+
+def arrows (l : Tlist) (r : Sort u) : Sort u := by
+match l, r with
+| Tlist.tnil, r => exact r
+| Tlist.tcons A l', r => exact A → arrows l' r
+
+notation "predicate" l => arrows l (Type (u))
+
+def binaryRelation (A : Type u) : Type (u + 1) :=
+  predicate (.tcons A <| .tcons A Tlist.tnil)
+
+
+def predicateEquivalence {l : Tlist} : binaryRelation (predicate l) :=
+  pointwise_lifting Iff l
+
+def relation_equivalence {α : Sort u} : Relation (Relation α) :=
+    @predicateEquivalence (_::_::Tnil)
+
 Include relation equivalence
 instance Proper α : Proper (relationEquivalence ⟹ eq ⟹ iff) (@Proper A).
--/
+
 
 /-only apply at the top of the goal with the subrelation flag set to true
 
