@@ -115,34 +115,54 @@ instance subrelationPointwise α [sub : @Subrel β r r'] : Subrel (pointwiseRela
   apply sub.subrelation
   apply pr
 
-universe u v
-
-inductive Tlist : Sort (max u v + 1)
+inductive Tlist : Type (u+1)
 | tnil : Tlist
-| tcons : Sort v → Tlist → Tlist
+| tcons : Type u → Tlist → Tlist
 
-local infix:65 "∶∶" => Tlist.tcons
+local infixr:66 " ∷ " => Tlist.tcons
+--infixr:67 " :: " => List.cons
 
-def arrows (l : Tlist) (r : Sort u) : Sort u := by
-match l, r with
-| Tlist.tnil, r => exact r
-| Tlist.tcons A l', r => exact A → arrows l' r
+def arrows : Tlist → Type u → Type u
+| Tlist.tnil, r => r
+| Tlist.tcons A l', r => A → arrows l' r
 
-notation "predicate" l => arrows l (Type (u))
+def predicate (l : Tlist) := arrows l Prop
 
-def binaryRelation (A : Type u) : Type (u + 1) :=
-  predicate (.tcons A <| .tcons A Tlist.tnil)
+def binaryRelation (α : Type) := predicate (α ∷ α ∷ Tlist.tnil)
 
+def pointwiseLifting (op : binaryRelation Prop) (l : Tlist) : binaryRelation (predicate l) :=
+  match l with
+  | .tnil => fun r r' => op r r'
+  | _ ∷ tl => fun r r' => ∀ x, pointwiseLifting op tl (r x) (r' x)
 
 def predicateEquivalence {l : Tlist} : binaryRelation (predicate l) :=
-  pointwise_lifting Iff l
+  pointwiseLifting Iff l
 
-def relation_equivalence {α : Sort u} : Relation (Relation α) :=
-    @predicateEquivalence (_::_::Tnil)
+def relationEquivalence {α : Type} : Relation (Relation α) :=
+    @predicateEquivalence (_ ∷ _ ∷ Tlist.tnil)
 
-Include relation equivalence
-instance Proper α : Proper (relationEquivalence ⟹ eq ⟹ iff) (@Proper A).
-
+instance proper α : Proper (@relationEquivalence α ⟹ Eq ⟹ Iff) Proper := by
+  apply Proper.mk
+  intro r r' hreq a b heq
+  apply Iff.intro
+  . intro hprp
+    rw [relationEquivalence] at hreq
+    rw [predicateEquivalence] at hreq
+    rw [← heq]
+    apply Proper.mk
+    replace hreq := hreq a a
+    rw [pointwiseLifting] at hreq
+    rw [← hreq]
+    apply hprp.proper
+  . intro hprp
+    rw [relationEquivalence] at hreq
+    rw [predicateEquivalence] at hreq
+    apply Proper.mk
+    replace hreq := hreq a a
+    rw [pointwiseLifting] at hreq
+    rw [hreq]
+    rw [heq]
+    apply hprp.proper
 
 /-only apply at the top of the goal with the subrelation flag set to true
 
