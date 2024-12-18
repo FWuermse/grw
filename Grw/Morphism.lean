@@ -295,6 +295,7 @@ instance properOrIff: Proper (Iff ⟹ Iff ⟹ Iff) Or :=
 instance properNotIff: Proper (Iff ⟹ Iff) Not :=
   ⟨fun _ _ h => by simp [h]⟩
 
+-/
 theorem reflexiveSubrel (r : relation α): Subrel r r := by
   apply Subrel.mk
   intros
@@ -302,7 +303,6 @@ theorem reflexiveSubrel (r : relation α): Subrel r r := by
 
 end Morphism
 
--/
 eauto_create_db grewrite
---eauto_hint Morphism.reflexiveSubrel : grewrite
+eauto_hint Morphism.reflexiveProper : grewrite
 eauto_hint Morphism.Reflexive.rfl : grewrite

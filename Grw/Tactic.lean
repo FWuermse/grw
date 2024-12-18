@@ -18,7 +18,6 @@ stay in MetaM for core functionality, TacticM entrypoint
 import Lean.Elab.Tactic
 import Grw.Morphism
 import Grw.Eauto
-import Grw.EautoHints
 import Batteries
 import Aesop
 
@@ -53,11 +52,23 @@ unification in t can contain more mvars which could get assigned:
   + if a rule fails
   + look up (commitIfSuccess)
 -/
-def unify (Ψ : List MVarId) (t : Expr) (p : Expr) : MetaM <| List MVarId × Expr × Expr × Expr × Bool := do
-  match p with
+
+structure RWCtx where
+-- Rewrite is of the form p = r t u
+  term : Expr
+  h : Expr
+  r : Expr
+  t : Expr
+  u : Expr
+
+abbrev RWM := ReaderT RWCtx MetaM
+
+def unify (Ψ : List MVarId) (t : Expr) : RWM <| List MVarId × Expr × Expr × Expr × Bool := do
+  let ρ ← read
+  match ρ.term with
   | .app (.app r lhs) rhs =>
     let unifyable ← isDefEq lhs t -- Extends the local context
-    pure (Ψ, r, p, rhs, unifyable)
+    pure (Ψ, r, ρ.h, rhs, unifyable)
   | .forallE _ _ (.app (.app r lhs) rhs) _ =>
     let (exprs, _, e) ← forallMetaTelescope lhs
     let unifyable ← isDefEq e t -- Extends the local context
@@ -69,20 +80,22 @@ def unify (Ψ : List MVarId) (t : Expr) (p : Expr) : MetaM <| List MVarId × Exp
       let reassigned ← mvarId.isAssignedOrDelayedAssigned
       if !reassigned then
         Ψ := Ψ.insert mvarId
-    pure (Ψ, r, p, rhs, unifyable)
-  | _ => throwError "{p} is not a relation"
+    pure (Ψ, r, ρ.h, rhs, unifyable)
+  | _ => throwError "{ρ.term} is not a relation"
 
 /--
 Note from paper:
 The variant unify∗ ρ(Γ, Ψ, τ ) tries unification on all subterms and succeeds if at least one
 unification does. The function unify(Γ, Ψ, t, u) does a standard unification of t and u.
 -/
-def unifyStar (Ψ : List MVarId) (t : Expr) (p : Expr) : MetaM <| List MVarId × Expr × Expr × Expr × Bool := match p with
+def unifyStar (Ψ : List MVarId) (t : Expr) : RWM <| List MVarId × Expr × Expr × Expr × Bool := do
+  let ρ ← read
+  match ρ.term with
   | .app (.app r lhs) rhs => do
     let b ← IO.mkRef false
     forEachExpr t fun t' => do
       b.set <| (← isDefEq lhs t') || (← b.get)
-    pure (Ψ, r, p, rhs, ← b.get)
+    pure (Ψ, r, ρ.h, rhs, ← b.get)
   | .forallE _ _ (.app (.app r lhs) rhs) _ => do
     let (exprs, _, t) ← forallMetaTelescope lhs
     let b ← IO.mkRef false
@@ -96,21 +109,22 @@ def unifyStar (Ψ : List MVarId) (t : Expr) (p : Expr) : MetaM <| List MVarId ×
       let reassigned ← mvarId.isAssignedOrDelayedAssigned
       if !reassigned then
         Ψ := Ψ.insert mvarId
-    pure (Ψ, r, p, rhs, ← b.get)
-  | _ => throwError "{t} is not a relation"
+    pure (Ψ, r, ρ.h, rhs, ← b.get)
+  | _ => throwError "{ρ.term} is not a relation"
 
-def mkRel (T : Expr) :=
-  mkApp (mkConst ``relation [0]) T
-
-def atom (Ψ : List MVarId) (t : Expr) (p : Expr) : MetaM <| List MVarId × Expr × Expr × Expr := do
+def atom (Ψ : List MVarId) (t : Expr) : RWM <| List MVarId × Expr × Expr × Expr := do
   /-
   preconditions:
     - No other rule can be applied
-    - Unify failed
+    - Unify* failed
   -/
+  let (Ψ', t', R, p', b) ← unifyStar Ψ t
+  if b then
+    return (Ψ', R, t', p')
   let T ← inferType t
-  let rel ← mkFreshExprMVar <| mkRel T
-  let prp ← mkFreshExprMVar <| mkApp3 (mkConst ``Proper [0]) T rel t
+  let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[T]
+  let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[rel, t]
+  let p ← mkAppOptM ``Proper.proper #[none, none, none, prp]
   return (Ψ ∪ [rel.mvarId!, prp.mvarId!], rel, t, p)
 
 /--
@@ -118,22 +132,22 @@ def atom (Ψ : List MVarId) (t : Expr) (p : Expr) : MetaM <| List MVarId × Expr
 
 This output tuple represents the proof sekelton that is used in the proof search.
 -/
-partial def rew (Ψ : List MVarId) (t : Expr) (p : Expr) : MetaM (List MVarId × Expr × Expr × Expr) := do
+partial def rew (Ψ : List MVarId) (t : Expr) : RWM (List MVarId × Expr × Expr × Expr) := do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"rew Ψ ({t}) ρ") do
   /-
   invariants:
     - p is of type Relation
   -/
-  let (Ψ', r, p', u, unifyable) ← unify Ψ t p
+  let (Ψ', r, p', u, unifyable) ← unify Ψ t
   if unifyable then
     trace[Meta.Tactic.grewrite] "UNIFY⇓ {t} ↝ {u}"
-    return (Ψ', r, t, p')
+    return (Ψ', r, u, p')
   trace[Meta.Tactic.grewrite] "Unify⇑ {t}"
   match t with
   | .app f e => do
     trace[Meta.Tactic.grewrite] "APPSUB ({f}) ({e})"
-    let (Ψ, E, f', pf) ← rew Ψ f p
-    let (Ψ, F, e', pe) ← rew Ψ e p
+    let (Ψ, F, f', pf) ← rew Ψ f
+    let (Ψ, E, e', pe) ← rew Ψ e
     /-
     preconditions:
       - t is an application f e
@@ -146,28 +160,29 @@ partial def rew (Ψ : List MVarId) (t : Expr) (p : Expr) : MetaM (List MVarId ×
     | .some (τ, σ) => pure (τ, σ)
     | .none => throwError "Type of f in f e must be of the form σ → τ but is {Tf}"
     -- precondition: type(Γ, Ψ, f)↑ ≡ τ → σ
-    let rel ← mkFreshExprMVar <| mkRel σ
-    let sub ← mkFreshExprMVar <| mkApp2 (mkConst ``Subrel [0]) F <| mkApp2 (mkConst ``respectful [0, 0]) E rel
+    let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
+    let sub ← mkFreshExprMVar <| ← mkAppM ``Subrel #[F, ← mkAppM ``respectful #[E, rel]]
     -- TODO is Subrel.subrelation correct here?
-    let p := mkApp7 (mkConst ``Subrel.subrelation [0]) sub f f' pf e e' pe
-    pure (Ψ ∪ [sub.mvarId!, rel.mvarId!], sub, .app f' e', p)
+    let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, sub, f, f', pf, e, e', pe]
+    pure (Ψ ∪ [sub.mvarId!, rel.mvarId!], rel, .app f' e', p)
   | .lam n T b i => do
     trace[Meta.Tactic.grewrite] "LAM {t}"
-    let (Ψ, S, b, p) ← rew Ψ b p
+    let (Ψ, S, b, p) ← rew Ψ b
     /-
     preconditions:
       - t is a lambda abstraction λ x.b
       - rewrite on b happened
     -/
     let S := mkApp2 (mkConst ``pointwiseRelation) T S
+    -- TODO p must be replaced with λ x : T p
     pure (Ψ, S, .lam n T b i, p)
   | .forallE n T b i => do
     trace[Meta.Tactic.grewrite] "PI {t}"
-    let (Ψ', r, p', u, unifyable) ← unifyStar Ψ T p
+    let (Ψ', r, p', u, unifyable) ← unifyStar Ψ T
     if unifyable then
       pure (Ψ', r, u, p')
     else
-      let (Ψ, S, b, p) ← rew Ψ (mkApp (mkConst ``all) <| .lam n T b i) p
+      let (Ψ, S, b, p) ← rew Ψ (mkApp (mkConst ``all) <| .lam n T b i)
       /-
       preconditions:
         - unify* on T failed
@@ -180,22 +195,23 @@ partial def rew (Ψ : List MVarId) (t : Expr) (p : Expr) : MetaM (List MVarId ×
   | _ => match t.arrow? with
   | .some (α, β) =>
     trace[Meta.Tactic.grewrite] "Arrow {t}"
-    let (Ψ, S, b, p) ← rew Ψ (mkApp2 (mkConst ``impl) α β) p
+    let (Ψ, S, b, p) ← rew Ψ (mkApp2 (mkConst ``impl) α β)
     if let .app (.app _c α) β := b then
       pure (Ψ, S, ← mkArrow α β, p)
     else
       throwError "Rewrite of `Impl α β` resulted in a different (thus wrong) type."
   | .none => do
     trace[Meta.Tactic.grewrite] "ATOM {t}"
-    atom Ψ t p
+    atom Ψ t
 
   -- iterate over constraits and call synthInstance
 def proofSearchGoal (Ψ : List MVarId) (R : Expr) (u : Expr) (p : Expr) : TacticM Unit := do
-  let R := mkApp (mkConst ``Subrel [0]) <| mkApp R (← mkAppM ``flip #[mkConst ``impl])
-  let sub ← mkFreshExprMVar R
-  let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, sub, none, none, p]
+  withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"proofSearch") do
+  let rewrite ← mkAppM ``Subrel #[R, ← mkAppM ``flip #[(mkConst ``impl)]]
+  let sub ← mkFreshExprMVar rewrite
+  let p := mkApp2 (mkConst ``Subrel.subrelation [0]) sub p
   let Ψ := Ψ.insert sub.mvarId!
-
+  trace[Meta.Tactic.grewrite] "{Ψ}"
   -- Try to solve the constraints with `typeclasses_eauto with grewrite`
   let success ← Eauto.eautoMain Ψ #[`grewrite] true
   if !success then
@@ -218,11 +234,15 @@ def algorithm (ps : Syntax.TSepArray `ident ",") : TacticM Unit := withMainConte
         continue
   for ldecl in ldecls do
     let goal ← getMainGoal
-    let p ← inferType ldecl.toExpr
-    let t ← goal.getType
+    let h := ldecl.toExpr
+    let term ← inferType h
+    let goalType ← goal.getType
     let Ψ := []
-    let (Ψ, R, u, p) ← rew Ψ t p
-    trace[Meta.Tactic.grewrite] "{Ψ}"
+    let ρ : RWState ← match term with
+    | .app (.app r t) u => do pure ⟨term, h, r, t, u⟩
+    | .forallE _ _ (.app (.app r t) u) _ => do pure ⟨term, h, r, t, u⟩
+    | _ => throwError "{term} is not a relation"
+    let (Ψ, R, u, p) ← rew Ψ goalType ρ
     proofSearchGoal Ψ R u p
 
 elab "grewrite" "[" ps:ident,+ "]" : tactic =>
@@ -231,10 +251,12 @@ elab "grewrite" "[" ps:ident,+ "]" : tactic =>
 end Tactic
 
 set_option trace.Meta.Tactic.grewrite true
+set_option trace.Meta.Tactic.eauto true
+set_option trace.Meta.Tactic.eauto.hints true
 
 example : ∀ {α : Sort u} {r : relation α} {x y z : α}, [Transitive r] → r x y → r y z → r x z := by
   intro a r x y z t h h₀
-  grewrite [h]
+  --grewrite [h]
   sorry
 
 variable (α β γ: Type)
