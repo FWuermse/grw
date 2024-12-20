@@ -1,93 +1,107 @@
 import Aesop
 import Grw.Eauto
+import Grw.AesopRuleset
 
 namespace Morphism
+
+macro "grw" : attr => `(attr| aesop unsafe 100% apply (rule_sets := [grewrite]))
 
 initialize
   Lean.registerTraceClass `Meta.Tactic.grewrite
 
+@[grw]
 abbrev relation (α : Sort u) := α → α → Prop
 
+@[grw]
 def impl (α β : Prop) : Prop := α → β
 
+@[grw]
 def all (α : Sort u) (p : α -> Prop) :=
   ∀x, p x
 
+@[grw]
 def relation.inverse {α : Sort u} (r : relation α) : α → α → Prop :=
 λ x y => r y x
 
 postfix:max "⁻¹" => relation.inverse
 
+@[grw]
 class Reflexive {α : Sort u} (rel : relation α) where
   rfl : ∀ x, rel x x
 
+@[grw]
 class Symmetric {α : Sort u} (rel : relation α) where
   symm : ∀ x y, rel x y → rel⁻¹ x y
 
+@[grw]
 class Transitive {α : Sort u} (rel : relation α) where
   trans : ∀ x y z, rel x y → rel y z → rel x z
 
+@[grw]
 class Equiv {α : Sort u} (r : relation α) extends Reflexive r, Symmetric r, Transitive r
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance flipReflexive {α : Sort u} {r : relation α} [Reflexive r] : Reflexive r⁻¹ :=
   Reflexive.mk fun x => by
     rw [relation.inverse]
     apply Reflexive.rfl x
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance implReflexive : Reflexive impl :=
   Reflexive.mk fun _ => id
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance implTransitive : Transitive impl :=
   Transitive.mk fun _ _ _ pqr pq => pq ∘ pqr
 
+@[grw]
 class Subrel {α : Sort u} (q r : relation α) : Prop where
   subrelation : ∀ x y, q x y → r x y
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance subrelationRefl {α : Sort u} {r : relation α} : Subrel r r :=
   Subrel.mk fun _ _ => id
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance iffImplSubrelation : Subrel Iff impl :=
   Subrel.mk fun _ _ pq hq => propext pq ▸ hq
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance iffInverseImplSubrelation : Subrel Iff impl⁻¹ :=
   Subrel.mk fun _ _ pq hq => propext pq ▸ hq
 
+@[grw]
 class Proper {α : Sort u} (r : relation α) (m : α) where
   proper : r m m
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance reflexiveProper {α : Sort u} {r : relation α} [Reflexive r] (x : α) : Proper r x :=
   Proper.mk <| Reflexive.rfl x
 
+@[grw]
 def respectful {α : Sort u} {β : Sort v} (r : relation α) (r' : relation β) : relation (α → β) :=
   fun f g => ∀ x y, r x y → r' (f x) (g y)
 
-@[aesop unsafe 100% apply]
+@[grw]
 theorem contrapositive {a b : Prop} :
   (a → b) → ¬ b → ¬ a :=
   fun hab hnb ha => hnb (hab ha)
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance notIffMorphism : Proper (respectful Iff Iff) Not :=
   Proper.mk fun _ _ x => Iff.intro (contrapositive x.mpr) (contrapositive x.mp)
 
 notation:55 r " ⟹ " r' => respectful r r'
 notation:55 r " ⟶ " r' => respectful r⁻¹ r'
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance contraposedMorphism : Proper (impl ⟶ impl) Not := by
   apply Proper.mk
   intro a b f na
   rw [relation.inverse, Not] at *
   apply contrapositive (f) (na)
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance transMorphism [Transitive r] : Proper (r ⟶ r ⟹ impl) r := by
   apply Proper.mk
   intro a b iab c d r r'
@@ -97,17 +111,18 @@ instance transMorphism [Transitive r] : Proper (r ⟶ r ⟹ impl) r := by
   apply Transitive.trans <;>
   assumption
 
+@[grw]
 def pointwiseRelation (α : Sort u) {β : Sort u} (r : relation β) : relation (α → β) :=
   fun f g => ∀ a, r (f a) (g a)
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance flipProper [mor : Proper (rα ⟹ rβ ⟹ rφ) f] : Proper (rβ ⟹ rα ⟹ rφ) (flip f) := by
   apply Proper.mk
   intro b₁ b₂ rb a₁ a₂ ra
   apply mor.proper
   repeat assumption
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance respectfulSubrelation [rs : Subrel r₂ r₁] [ss : Subrel s₁ s₂] : Subrel (r₁ ⟹ s₁) (r₂ ⟹ s₂) := by
   apply Subrel.mk
   intro f f' p x y rxy
@@ -115,7 +130,7 @@ instance respectfulSubrelation [rs : Subrel r₂ r₁] [ss : Subrel s₁ s₂] :
   apply p
   exact rs.subrelation x y rxy
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance : Proper (Subrel ⟹ Subrel) (@pointwiseRelation α β) := by
   apply Proper.mk
   intro rb rb' sr
@@ -124,17 +139,18 @@ instance : Proper (Subrel ⟹ Subrel) (@pointwiseRelation α β) := by
   apply sr.subrelation
   apply hfg
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance subrelationPointwise α [sub : @Subrel β r r'] : Subrel (pointwiseRelation α r) (pointwiseRelation α r') := by
   apply Subrel.mk
   intro f g pr a
   apply sub.subrelation
   apply pr
 
+@[grw]
 def relationEquivalence : relation (relation α) :=
   Eq
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance proper (α : Sort u) : Proper (relationEquivalence ⟹ Eq ⟹ Iff) (@Proper α) := by
   apply Proper.mk
   intro r r' hreq a b heq
@@ -157,13 +173,13 @@ theorem subrelationProper [p : Proper r₁ m] [sr : Subrel r₁ r₂] : Proper r
 
 -- TODO: instance «partial» [@Proper (α → β) (r ⟹ r') m] [@Proper α r x] : Proper r' (m x) := sorry
 
-@[aesop unsafe 100% apply]
+@[grw]
 instance properInverse [p : Proper r m] : Proper r⁻¹ m := Proper.mk p.proper
 
-@[aesop unsafe 100% apply]
+@[grw]
 theorem inverseInvol α (r : relation α) : r⁻¹⁻¹ = r := rfl
 
-@[aesop unsafe 100% apply]
+@[grw]
 theorem inverseArrow α (ra : relation α) β (rb : relation β) : (ra ⟹ rb)⁻¹ = ra⁻¹ ⟹ rb⁻¹ := by
   funext f g
   apply propext
@@ -175,10 +191,10 @@ theorem inverseArrow α (ra : relation α) β (rb : relation β) : (ra ⟹ rb)�
 class Normalizes {α} (m m' : relation α) where
   normalizes : m = m'⁻¹
 
-@[aesop unsafe 100% apply]
+@[grw]
 theorem norm1 α r : @Normalizes α r (r⁻¹) := Normalizes.mk rfl
 
-@[aesop unsafe 100% apply]
+@[grw]
 theorem norm2 [n₁ : @Normalizes β r₀ r₁] [n₂ : @Normalizes β u₀ u₁] : Normalizes (r₀ ⟹ u₀) (r₁ ⟹ u₁) := Normalizes.mk (by
   funext f g
   apply propext
@@ -285,21 +301,19 @@ instance respectfulPER [hr₁ : PER r₁] [hr₂ : PER r₂]: PER (r₁ ⟹ r₂
     apply Transitive.trans
     apply Symmetric.symm
     repeat assumption
+-/
 
+@[grw]
 instance properAndIff: Proper (Iff ⟹ Iff ⟹ Iff) And :=
   ⟨fun _ _ hx _ _ hy => by simp [hx, hy]⟩
 
+@[grw]
 instance properOrIff: Proper (Iff ⟹ Iff ⟹ Iff) Or :=
   ⟨fun _ _ hx _ _ hy => by simp [hx, hy]⟩
 
+@[grw]
 instance properNotIff: Proper (Iff ⟹ Iff) Not :=
   ⟨fun _ _ h => by simp [h]⟩
-
--/
-theorem reflexiveSubrel (r : relation α): Subrel r r := by
-  apply Subrel.mk
-  intros
-  assumption
 
 end Morphism
 
