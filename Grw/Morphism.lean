@@ -36,10 +36,10 @@ class Transitive {α : Sort u} (rel : relation α) where
   trans : ∀ x y z, rel x y → rel y z → rel x z
 
 @[grw]
-class PER {α: Type _} (R: relation α) extends Symmetric R, Transitive R
+class PER {α: Sort u} (R: relation α) extends Symmetric R, Transitive R
 
 @[grw]
-class Equiv {α: Type _} (R: relation α) extends PER R, Reflexive R
+class Equiv {α: Sort u} (R: relation α) extends PER R, Reflexive R
 
 @[grw]
 instance flipReflexive {α : Sort u} {r : relation α} [Reflexive r] : Reflexive r⁻¹ :=

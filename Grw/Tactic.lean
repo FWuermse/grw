@@ -277,6 +277,7 @@ variable (Pαβγ: α → β → Prop)
 variable (fαβ: α → β) (fβγ: β → γ)
 variable [Proper_fαβ: Proper (Rα ⟹ Rβ) fαβ]
 variable [Proper_Pα: Proper (Rα ⟹ Iff) Pα]
+variable [PER Rα] [PER Rβ]
 
 example (h: Eq b a) (finish: a) : b := by
   grewrite [h]
@@ -294,20 +295,14 @@ example (h: Rα a a') (finish: Pα a') : Pα a := by
 example (h: Rα a a') (finish: Rα a' x) : Rα a x := by
   grewrite [h]
   exact finish
-  apply Subrel.mk
-  intro ra rb req a b rab c d rcd
-  sorry
 
 example (h: Rα a a') (finish: Rα x a') : Rα x a := by
   grewrite [h]
   assumption
-  sorry
 
 example (h: Rα a a') (finish: Rβ (fαβ a') x): Rβ (fαβ a) x := by
   grewrite [h]
   assumption
-
-  sorry
 
 example (h: Rα a a') (finish: Rα a' a'): Rα a a := by
   grewrite [h]
