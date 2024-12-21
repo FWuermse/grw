@@ -5,8 +5,6 @@
 import Grw.Eauto
 import Grw.Morphism
 
-open Morphism
-
 set_option trace.Meta.Tactic.eauto true
 set_option trace.Meta.Tactic.eauto.hints true
 
@@ -14,25 +12,25 @@ set_option trace.Meta.Tactic.eauto.hints true
 
 -- Assumption
 example: P → P := by
-  eauto
+  aesop
 
 -- Function application with no intermediate variable
 example: (P → Q → R → S) → R → Q → P → S := by
-  eauto
+  aesop
 
 -- Reverse application
 example: (((P → Q) → R) → S) → (Q → R) → P → S := by
-  eauto
+  aesop
 
 -- Intermediate metavariable for ?a:α
 example (Pα: α → Prop) (f: forall a, Pα a → β) (a: α) (ha: Pα a): β := by
-  eauto
+  aesop
 
 -- Backtracking example; using ha₁ first which is incorrect
 example (P₁ P₂: α → Prop) (f: forall (a: α), P₁ a → P₂ a → β)
         (a: α) (_: P₁ a)
         (a': α) (ha'₁: P₁ a') (ha'₂: P₂ a'): β := by
-  eauto
+  aesop
 
 --== Typeclass resolution cases (on local context) ==--
 
@@ -45,7 +43,7 @@ example {α β: Type} {Rα: relation α} {Pα: α → Prop}
      Proper R₁ Pα →
      Subrel R₁ (Rα ⟹ R₂) →
      Subrel R₂ (flip impl) → β): β := by
-  eauto
+  aesop
 
 -- Now we force the use of Subrel_respectful, which has instance arguments
 example {α β: Type} {Rα: relation α} {Pα: α → Prop}
@@ -57,7 +55,7 @@ example {α β: Type} {Rα: relation α} {Pα: α → Prop}
      Proper R₁ Pα →
      Subrel R₁ (Rα ⟹ R₂) →
      Subrel R₂ (flip impl) → β): β := by
-  have h := @Subrel_respectful
+  have h := @respectfulSubrelation
   typeclasses_eauto
 
 -- Then we start to introduce generic instances
@@ -67,41 +65,41 @@ example {α β: Type} {Rα: relation α} {Pα: α → Prop}
      Proper R₁ Pα →
      Subrel R₁ (Rα ⟹ R₂) →
      Subrel R₂ (flip impl) → β): β := by
-  have h₁ := @Subrel_respectful
-  have h₂ := @Reflexive_Subrel
-  have h₃ := @Reflexive.refl.{0}
-  have h₄ := @Subrel_Iff_flip_impl
-  typeclasses_eauto
+  have h₁ := @respectfulSubrelation.{0, 0}
+  have h₂ := @subrelationRefl.{1}
+  have h₃ := @Reflexive.rfl.{0}
+  have h₄ := @subrelIffFlipImpl
+  aesop
 
 --== Typeclass resolution cases (on database) ==--
 
 eauto_create_db test_eauto_1
-eauto_hint Subrel_respectful: test_eauto_1
+eauto_hint respectfulSubrelation: test_eauto_1
 eauto_hint Reflexive.rfl: test_eauto_1
-eauto_hint Reflexive_Subrel: test_eauto_1
-eauto_hint Subrel_Iff_flip_impl: test_eauto_1
+eauto_hint subrelationRefl: test_eauto_1
+eauto_hint subrelIffFlipImpl: test_eauto_1
 #print_eauto_db
 
 -- Only locally-relevant hypotheses in context here
 example {α β: Type} {Rα: relation α} {Pα: α → Prop}
-  (h₁: Proper (Rα ==> Iff) Pα)
+  (h₁: Proper (Rα ⟹ Iff) Pα)
   (goal: forall (R₁: relation (α → Prop)) (R₂: relation Prop),
      Proper R₁ Pα →
-     Subrel R₁ (Rα ==> R₂) →
+     Subrel R₁ (Rα ⟹ R₂) →
      Subrel R₂ (flip impl) → β): β := by
   typeclasses_eauto with test_eauto_1
 
 --== Using eauto as a typeclass resolution algorithm ==--
 
 eauto_create_db test_eauto_2
-eauto_hint Reflexive_Subrel: test_eauto_2
-eauto_hint Reflexive.refl: test_eauto_2
+eauto_hint subrelationRefl: test_eauto_2
+eauto_hint Reflexive.rfl: test_eauto_2
 #print_eauto_db
 
 example {α β: Type _} {Rα: relation α} {Pα: α → Prop}
-  (h₁: Proper (Rα ==> Iff) Pα)
+  (h₁: Proper (Rα ⟹ Iff) Pα)
   (goal: forall (R₁: relation (α → Prop)) (R₂: relation Prop),
      Proper R₁ Pα →
-     Subrel R₁ (Rα ==> R₂) →
+     Subrel R₁ (Rα ⟹ R₂) →
      Subrel R₂ (flip impl) → β): β := by
   typeclasses_eauto with test_eauto_2

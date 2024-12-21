@@ -23,7 +23,6 @@ import Aesop
 
 open Lean
 open Lean.Meta
-open Morphism
 open Lean.Elab.Tactic
 
 set_option trace.aesop true
@@ -200,13 +199,13 @@ partial def rew (Ψ : List MVarId) (t : Expr) : RWM (List MVarId × Expr × Expr
     atom Ψ t
 
   -- iterate over constraits and call synthInstance
-def proofSearchGoal (Ψ : List MVarId) (R : Expr) (u : Expr) (p : Expr) : TacticM Unit := do
+def aesopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"proofSearch") do
   trace[Meta.Tactic.grewrite] "{Ψ}"
   -- Try to solve the constraints with `typeclasses_eauto with grewrite`
-
     let mut progress := true
     while progress do
+      -- Bruteforce approach just for testing purposes.
       progress := false
       for goal in Ψ do
         try
@@ -218,10 +217,22 @@ def proofSearchGoal (Ψ : List MVarId) (R : Expr) (u : Expr) (p : Expr) : Tactic
           progress := progress || true;
         catch _ =>
           logInfo m!"failed."
+          try
+            let _ ← goal.assumption
+          catch e =>
+            pure ()
         -- If Aesop fails, return false
+  let goal ← getMainGoal
+  let subgoals ← goal.apply (← instantiateMVars p)
+  replaceMainGoal subgoals
+
+def eautoSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
+  -- Try to solve the constraints with `typeclasses_eauto with grewrite`
+  let success ← Eauto.eautoMain Ψ #[`grewrite] true
+  if !success then
+    throwError "grewrite: unable to solve constraints"
 
   let goal ← getMainGoal
-  logInfo p
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
 
@@ -243,12 +254,12 @@ def algorithm (ps : Syntax.TSepArray `ident ",") : TacticM Unit := withMainConte
     let goalType ← goal.getType
     let Ψ := []
     let (Ψ, R, u, p) ← rew Ψ goalType ρ
-    -- Final rw for goal (would be impl for rw on hypothesis)
+    -- Final rw for goal is subrel flip impl (see: https://coq.zulipchat.com/#narrow/channel/237977-Coq-users/topic/.E2.9C.94.20Generalized.20rewriting.20-.20proof.20skeleton.20generation)
     let finalGoal ← mkAppM ``Subrel #[R, ← mkAppM ``flip #[mkConst ``impl]]
     let m ← mkFreshExprMVar finalGoal
     let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
     let Ψ := Ψ.insert m.mvarId!
-    proofSearchGoal Ψ R u p
+    aesopSearch Ψ p
 
 elab "grewrite" "[" ps:ident,+ "]" : tactic =>
   algorithm ps
@@ -259,12 +270,7 @@ set_option trace.Meta.Tactic.grewrite true
 set_option trace.Meta.Tactic.eauto true
 set_option trace.Meta.Tactic.eauto.hints true
 
-example : ∀ {α : Sort u} {r : relation α} {x y z : α}, [Transitive r] → r x y → r y z → r x z := by
-  intro a r x y z t h h₀
-  grewrite [h]
-  sorry
-
-variable (α β γ: Type)
+variable (α β γ: Sort u)
 variable (Rα: relation α) (Rβ: relation β) (Rγ: relation γ)
 variable (Pα: α → Prop) (Pβ: β → Prop) (Pγ: γ → Prop)
 variable (Pαβγ: α → β → Prop)
@@ -278,30 +284,30 @@ example (h: Eq b a) (finish: a) : b := by
 
 example (h: Rα a a') (finish: Pα a') : Pα a := by
   grewrite [h]
-  assumption
-  apply Proper.mk
-
-  sorry
-
-example (h: Rα a a') : Rα a x := by
-  grewrite [h]
-  sorry
+  exact finish
 
 example (h: Rα a a') (finish: Pα a') : Pα a := by
   grewrite [h]
-  assumption
+  exact finish
 
 -- Rewrite a PER within itself
 example (h: Rα a a') (finish: Rα a' x) : Rα a x := by
   grewrite [h]
-  assumption
+  exact finish
+  apply Subrel.mk
+  intro ra rb req a b rab c d rcd
+  sorry
+
 example (h: Rα a a') (finish: Rα x a') : Rα x a := by
   grewrite [h]
   assumption
+  sorry
 
 example (h: Rα a a') (finish: Rβ (fαβ a') x): Rβ (fαβ a) x := by
   grewrite [h]
   assumption
+
+  sorry
 
 example (h: Rα a a') (finish: Rα a' a'): Rα a a := by
   grewrite [h]

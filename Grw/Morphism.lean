@@ -2,8 +2,6 @@ import Aesop
 import Grw.Eauto
 import Grw.AesopRuleset
 
-namespace Morphism
-
 macro "grw" : attr => `(attr| aesop unsafe 100% apply (rule_sets := [grewrite]))
 
 initialize
@@ -38,7 +36,10 @@ class Transitive {α : Sort u} (rel : relation α) where
   trans : ∀ x y z, rel x y → rel y z → rel x z
 
 @[grw]
-class Equiv {α : Sort u} (r : relation α) extends Reflexive r, Symmetric r, Transitive r
+class PER {α: Type _} (R: relation α) extends Symmetric R, Transitive R
+
+@[grw]
+class Equiv {α: Type _} (R: relation α) extends PER R, Reflexive R
 
 @[grw]
 instance flipReflexive {α : Sort u} {r : relation α} [Reflexive r] : Reflexive r⁻¹ :=
@@ -116,6 +117,11 @@ def pointwiseRelation (α : Sort u) {β : Sort u} (r : relation β) : relation (
   fun f g => ∀ a, r (f a) (g a)
 
 @[grw]
+def forallRelation {α: Sort u} {P: α → Sort u}
+    (sig: forall a, relation (P a)): relation (forall x, P x) :=
+  fun f g => forall a, sig a (f a) (g a)
+
+@[grw]
 instance flipProper [mor : Proper (rα ⟹ rβ ⟹ rφ) f] : Proper (rβ ⟹ rα ⟹ rφ) (flip f) := by
   apply Proper.mk
   intro b₁ b₂ rb a₁ a₂ ra
@@ -164,14 +170,16 @@ instance proper (α : Sort u) : Proper (relationEquivalence ⟹ Eq ⟹ Iff) (@Pr
     rw [hreq, heq]
     apply hprp.proper
 
-/-only apply at the top of the goal with the subrelation flag set to true
+--only apply at the top of the goal with the subrelation flag set to true
 
 theorem subrelationProper [p : Proper r₁ m] [sr : Subrel r₁ r₂] : Proper r₂ m := Proper.mk (by
   apply sr.subrelation
   apply p.proper)
--/
 
--- TODO: instance «partial» [@Proper (α → β) (r ⟹ r') m] [@Proper α r x] : Proper r' (m x) := sorry
+--@[aesop unsafe 10% apply (rule_sets := [grewrite])]
+
+--instance part [@Proper (α → β) (r ⟹ r') m] [@Proper α r x] : Proper r' (m x) := by
+  --sorry
 
 @[grw]
 instance properInverse [p : Proper r m] : Proper r⁻¹ m := Proper.mk p.proper
@@ -188,6 +196,7 @@ theorem inverseArrow α (ra : relation α) β (rb : relation β) : (ra ⟹ rb)�
     apply h
     exact hra
 
+@[grw]
 class Normalizes {α} (m m' : relation α) where
   normalizes : m = m'⁻¹
 
@@ -204,8 +213,24 @@ theorem norm2 [n₁ : @Normalizes β r₀ r₁] [n₂ : @Normalizes β u₀ u₁
     apply h
     exact hr)
 
-/- Instances Sébastien Michelland added
+/- Instances Sébastien Michelland added -/
 
+@[grw]
+instance subrelationEqRespectfulEqEq {α β: Sort u} : Subrel Eq (@Eq α ⟹ @Eq β) := by
+  apply Subrel.mk
+  intro f g feqg a b aeqb
+  simp_all
+
+@[grw]
+instance properPointwiseRelation {α β: Sort u}:
+    Proper (Subrel ⟹ Subrel) (@pointwiseRelation α β) where
+  proper _ _ h := by
+    apply Subrel.mk
+    intro f g hp a
+    apply h.subrelation
+    apply hp
+
+@[grw]
 instance: Equiv (@Eq α) where
   rfl  := Eq.refl
   symm  := by
@@ -217,6 +242,7 @@ instance: Equiv (@Eq α) where
     apply Eq.trans
     repeat assumption
 
+@[grw]
 instance: Equiv Iff where
   rfl  := Iff.refl
   symm  := by
@@ -228,6 +254,7 @@ instance: Equiv Iff where
     apply Iff.trans
     repeat assumption
 
+@[grw]
 instance {R : relation α} [PER R] : Proper (R ⟹ R ⟹ Iff) R := by
   apply Proper.mk
   intro a b rab c d rcd
@@ -246,6 +273,7 @@ instance {R : relation α} [PER R] : Proper (R ⟹ R ⟹ Iff) R := by
   apply Symmetric.symm
   assumption
 
+@[grw]
 instance {R : relation α} [PER R] : Proper (R ⟹ Eq ⟹ Iff) R := by
   apply Proper.mk
   intro a b rab c d hcd
@@ -262,6 +290,7 @@ instance {R : relation α} [PER R] : Proper (R ⟹ Eq ⟹ Iff) R := by
   rw [← hcd] at rbd
   assumption
 
+@[grw]
 instance {R : relation α} [PER R] : Proper (Eq ⟹ R ⟹ Iff) R := by
   apply Proper.mk
   intro a b hab c d rcd
@@ -277,16 +306,19 @@ instance {R : relation α} [PER R] : Proper (Eq ⟹ R ⟹ Iff) R := by
   apply Symmetric.symm
   assumption
 
-instance Proper_flip [P: Proper (Rα ⟹ Rβ ⟹ Rγ) f]:
+@[grw]
+instance properFlip [P: Proper (Rα ⟹ Rβ ⟹ Rγ) f]:
     Proper (Rβ ⟹ Rα ⟹ Rγ) (flip f) where
   proper _ _ h_b _ _ h_a := P.proper _ _ h_a _ _ h_b
 
-instance Subrel_Eq [Reflexive R]: Subrel Eq R where
+@[grw]
+instance subrelEq [Reflexive R]: Subrel Eq R where
   subrelation h := by
     intro y heq
     simp_all
     apply Reflexive.rfl
 
+@[grw]
 instance respectfulPER [hr₁ : PER r₁] [hr₂ : PER r₂]: PER (r₁ ⟹ r₂) where
   symm h g hg x y h₁ := by
     apply hr₂.symm
@@ -301,7 +333,18 @@ instance respectfulPER [hr₁ : PER r₁] [hr₂ : PER r₂]: PER (r₁ ⟹ r₂
     apply Transitive.trans
     apply Symmetric.symm
     repeat assumption
--/
+
+@[grw]
+instance subrelIffImpl: Subrel Iff impl where
+  subrelation h := by
+    intro g iff
+    apply iff.mp
+
+@[grw]
+instance subrelIffFlipImpl: Subrel Iff (flip impl) where
+  subrelation h := by
+    intro g iff
+    apply iff.mpr
 
 @[grw]
 instance properAndIff: Proper (Iff ⟹ Iff ⟹ Iff) And :=
@@ -315,8 +358,6 @@ instance properOrIff: Proper (Iff ⟹ Iff ⟹ Iff) Or :=
 instance properNotIff: Proper (Iff ⟹ Iff) Not :=
   ⟨fun _ _ h => by simp [h]⟩
 
-end Morphism
-
 eauto_create_db grewrite
-eauto_hint Morphism.reflexiveProper : grewrite
-eauto_hint Morphism.Reflexive.rfl : grewrite
+eauto_hint reflexiveProper : grewrite
+eauto_hint Reflexive.rfl : grewrite
