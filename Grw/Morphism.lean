@@ -177,7 +177,6 @@ theorem subrelationProper [p : Proper r₁ m] [sr : Subrel r₁ r₂] : Proper r
   apply p.proper)
 
 --@[aesop unsafe 10% apply (rule_sets := [grewrite])]
-
 --instance part [@Proper (α → β) (r ⟹ r') m] [@Proper α r x] : Proper r' (m x) := by
   --sorry
 
@@ -255,7 +254,7 @@ instance: Equiv Iff where
     repeat assumption
 
 @[grw]
-instance {R : relation α} [PER R] : Proper (R ⟹ R ⟹ Iff) R := by
+instance {r : relation α} [PER r] : Proper (r ⟹ r ⟹ Iff) r := by
   apply Proper.mk
   intro a b rab c d rcd
   apply Iff.intro
@@ -274,7 +273,7 @@ instance {R : relation α} [PER R] : Proper (R ⟹ R ⟹ Iff) R := by
   assumption
 
 @[grw]
-instance {R : relation α} [PER R] : Proper (R ⟹ Eq ⟹ Iff) R := by
+instance {r : relation α} [PER r] : Proper (r ⟹ Eq ⟹ Iff) r := by
   apply Proper.mk
   intro a b rab c d hcd
   apply Iff.intro
@@ -291,7 +290,7 @@ instance {R : relation α} [PER R] : Proper (R ⟹ Eq ⟹ Iff) R := by
   assumption
 
 @[grw]
-instance {R : relation α} [PER R] : Proper (Eq ⟹ R ⟹ Iff) R := by
+instance {r : relation α} [PER r] : Proper (Eq ⟹ r ⟹ Iff) r := by
   apply Proper.mk
   intro a b hab c d rcd
   apply Iff.intro

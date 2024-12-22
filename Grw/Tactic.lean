@@ -54,6 +54,9 @@ unification in t can contain more mvars which could get assigned:
 
 abbrev RWM := ReaderT Expr MetaM
 
+private def srep : Nat → String
+  | n => n.fold (fun _ s => s ++ "  ") ""
+
 def unify (Ψ : List MVarId) (t : Expr) : RWM <| List MVarId × Expr × Expr × Expr × Bool := do
   let ρ ← read
   match ← inferType ρ with
@@ -118,30 +121,37 @@ def atom (Ψ : List MVarId) (t : Expr) : RWM <| List MVarId × Expr × Expr × E
   let m ← mkFreshExprMVar <| ← mkAppM ``Proper #[S, t]
   -- TODO confirm below line
   let p ← mkAppOptM ``Proper.proper #[none, none, none, m]
-  return (Ψ ∪ [S.mvarId!, m.mvarId!], S, t, p)
+  -- paper says include S.mvardId! But it seems counterintuitive to guess the relation aswell
+  return (Ψ ∪ [m.mvarId!], S, t, p)
+
+private def getRelType (rel : Expr) : Expr :=
+  if let .app _ b := rel then
+    b
+  else
+    rel
 
 /--
 `rew` always succeeds and returns a tuple (Ψ, R, τ', p) with the output constraints, a relation R, a new term τ' and a proof p : R τ τ'. In case no rewrite happens we can just have an application of ATOM.
 
 This output tuple represents the proof sekelton that is used in the proof search.
 -/
-partial def rew (Ψ : List MVarId) (t : Expr) : RWM (List MVarId × Expr × Expr × Expr) := do
-  withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"rew Ψ ({t}) ρ") do
+partial def rew (Ψ : List MVarId) (t : Expr) (depth : Nat) : RWM (List MVarId × Expr × Expr × Expr) := do
+  withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"{srep <| depth}rew Ψ ({t}) ρ") do
   let ρ ← read
   /-
   invariants:
-    - p is of type Relation
+    - ρ is of type Relation
   -/
   let (Ψ', r, p', u, unifyable) ← unify Ψ t ρ
   if unifyable then
-    trace[Meta.Tactic.grewrite] "UNIFY⇓ {t} ↝ {u}"
+    trace[Meta.Tactic.grewrite] "{srep depth} |UNIFY⇓ {t} ↝ {u}"
     return (Ψ', r, u, p')
-  trace[Meta.Tactic.grewrite] "Unify⇑ {t}"
+  trace[Meta.Tactic.grewrite] "{srep depth} |Unify⇑ {t}"
   match t with
   | .app f e => do
-    trace[Meta.Tactic.grewrite] "APPSUB ({f}) ({e})"
-    let (Ψ, F, f', pf) ← rew Ψ f ρ
-    let (Ψ, E, e', pe) ← rew Ψ e ρ
+    trace[Meta.Tactic.grewrite] "{srep depth} |APPSUB ({f}) ({e})"
+    let (Ψ, F, f', pf) ← rew Ψ f (depth+1) ρ
+    let (Ψ, E, e', pe) ← rew Ψ e (depth+1) ρ
     /-
     preconditions:
       - t is an application f e
@@ -150,33 +160,35 @@ partial def rew (Ψ : List MVarId) (t : Expr) : RWM (List MVarId × Expr × Expr
       - rewrite on e happened
     -/
     let Tf ← whnf <| ← inferType f
-    let (_τ, σ) ← match Tf.arrow? with
-    | .some (τ, σ) => pure (τ, σ)
-    | .none => throwError "Type of f in f e must be of the form σ → τ but is {Tf}"
-    -- precondition: type(Γ, Ψ, f)↑ ≡ τ → σ
-    let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
-    let sub ← mkFreshExprMVar <| ← mkAppM ``Subrel #[F, ← mkAppM ``respectful #[E, rel]]
-    -- TODO is Subrel.subrelation correct here?
-    let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, sub, f, f', pf, e, e', pe]
-    pure (Ψ ∪ [sub.mvarId!, rel.mvarId!], rel, .app f' e', p)
+    if let .some (_τ, σ) := Tf.arrow? then
+      -- precondition: type(Γ, Ψ, f)↑ ≡ τ → σ
+      let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
+      let sub ← mkFreshExprMVar <| ← mkAppM ``Subrel #[F, ← mkAppM ``respectful #[E, rel]]
+      -- TODO is Subrel.subrelation correct here? -> Yes seems like the paper means Subrel.subrelation implicitly as it's the only constructor.
+      let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, sub, f, f', pf, e, e', pe]
+      -- paper says include S.mvardId! But it seems counterintuitive to guess the relation aswell
+      pure (Ψ ∪ [sub.mvarId!], rel, .app f' e', p)
+    else
+      atom Ψ t
   | .lam n T b i => do
-    trace[Meta.Tactic.grewrite] "LAM {t}"
-    let (Ψ, S, b, p) ← rew Ψ b
-    /-
-    preconditions:
-      - t is a lambda abstraction λ x.b
-      - rewrite on b happened
-    -/
-    let S := mkApp2 (mkConst ``pointwiseRelation) T S
-    -- TODO p must be replaced with λ x : T p
-    pure (Ψ, S, .lam n T b i, p)
+    trace[Meta.Tactic.grewrite] "{srep depth} |LAM {t}"
+    lambdaTelescope t (fun xs b => do
+      let (Ψ, S, b, p) ← rew Ψ b (depth+1) ρ
+      /-
+      preconditions:
+        - t is a lambda abstraction λ x.b
+        - rewrite on b happened
+      -/
+      let S := mkApp3 (mkConst ``pointwiseRelation [0]) T (getRelType (← inferType S)) S
+      let p := .lam n T p i
+      pure (Ψ, S, .lam n T b i, p))
   | .forallE n T b i => do
-    trace[Meta.Tactic.grewrite] "PI {t}"
+    trace[Meta.Tactic.grewrite] "{srep depth} |PI {t}"
     let (Ψ', r, p', u, unifyable) ← unifyStar Ψ T
     if unifyable then
       pure (Ψ', r, u, p')
     else
-      let (Ψ, S, b, p) ← rew Ψ (mkApp (mkConst ``all) <| .lam n T b i)
+      let (Ψ, S, b, p) ← rew Ψ (mkApp (mkConst ``all) <| .lam n T b i) (depth+1)
       /-
       preconditions:
         - unify* on T failed
@@ -188,21 +200,19 @@ partial def rew (Ψ : List MVarId) (t : Expr) : RWM (List MVarId × Expr × Expr
         throwError "Rewrite of `all λ x ↦ y` resulted in a different (thus wrong) type."
   | _ => match t.arrow? with
   | .some (α, β) =>
-    trace[Meta.Tactic.grewrite] "Arrow {t}"
-    let (Ψ, S, b, p) ← rew Ψ (mkApp2 (mkConst ``impl) α β)
+    trace[Meta.Tactic.grewrite] "{srep depth} |Arrow {t}"
+    let (Ψ, S, b, p) ← rew Ψ (mkApp2 (mkConst ``impl) α β) (depth+1)
     if let .app (.app _c α) β := b then
       pure (Ψ, S, ← mkArrow α β, p)
     else
       throwError "Rewrite of `Impl α β` resulted in a different (thus wrong) type."
   | .none => do
-    trace[Meta.Tactic.grewrite] "ATOM {t}"
+    trace[Meta.Tactic.grewrite] "{srep depth} |ATOM {t}"
     atom Ψ t
 
-  -- iterate over constraits and call synthInstance
 def aesopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"proofSearch") do
   trace[Meta.Tactic.grewrite] "{Ψ}"
-  -- Try to solve the constraints with `typeclasses_eauto with grewrite`
     let mut progress := true
     while progress do
       -- Bruteforce approach just for testing purposes.
@@ -212,16 +222,13 @@ def aesopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
           let rs ← Aesop.Frontend.getGlobalRuleSet `grewrite
           let options : Aesop.Options := {strategy := Aesop.Strategy.depthFirst, enableSimp := false, enableUnfold := false, useDefaultSimpSet := false}
           let rs ← Aesop.mkLocalRuleSet #[rs] (← options.toOptions')
-          let result ← Aesop.search goal (ruleSet? := .some rs) (options := options)
-          logInfo m!"worked. New constraints: {result.fst} {result.snd.scriptGenerated.toString}"
+          let _ ← Aesop.search goal (ruleSet? := .some rs) (options := options)
           progress := progress || true;
         catch _ =>
-          logInfo m!"failed."
           try
             let _ ← goal.assumption
-          catch e =>
+          catch _ =>
             pure ()
-        -- If Aesop fails, return false
   let goal ← getMainGoal
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
@@ -253,57 +260,15 @@ def algorithm (ps : Syntax.TSepArray `ident ",") : TacticM Unit := withMainConte
     let ρ := ldecl.toExpr
     let goalType ← goal.getType
     let Ψ := []
-    let (Ψ, R, u, p) ← rew Ψ goalType ρ
+    let (Ψ, R, u, p) ← rew Ψ goalType 0 ρ
     -- Final rw for goal is subrel flip impl (see: https://coq.zulipchat.com/#narrow/channel/237977-Coq-users/topic/.E2.9C.94.20Generalized.20rewriting.20-.20proof.20skeleton.20generation)
     let finalGoal ← mkAppM ``Subrel #[R, ← mkAppM ``flip #[mkConst ``impl]]
     let m ← mkFreshExprMVar finalGoal
     let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
     let Ψ := Ψ.insert m.mvarId!
-    aesopSearch Ψ p
+    eautoSearch Ψ p
 
 elab "grewrite" "[" ps:ident,+ "]" : tactic =>
   algorithm ps
 
 end Tactic
-
-set_option trace.Meta.Tactic.grewrite true
-set_option trace.Meta.Tactic.eauto true
-set_option trace.Meta.Tactic.eauto.hints true
-
-variable (α β γ: Sort u)
-variable (Rα: relation α) (Rβ: relation β) (Rγ: relation γ)
-variable (Pα: α → Prop) (Pβ: β → Prop) (Pγ: γ → Prop)
-variable (Pαβγ: α → β → Prop)
-variable (fαβ: α → β) (fβγ: β → γ)
-variable [Proper_fαβ: Proper (Rα ⟹ Rβ) fαβ]
-variable [Proper_Pα: Proper (Rα ⟹ Iff) Pα]
-variable [PER Rα] [PER Rβ]
-
-example (h: Eq b a) (finish: a) : b := by
-  grewrite [h]
-  sorry
-
-example (h: Rα a a') (finish: Pα a') : Pα a := by
-  grewrite [h]
-  exact finish
-
-example (h: Rα a a') (finish: Pα a') : Pα a := by
-  grewrite [h]
-  exact finish
-
--- Rewrite a PER within itself
-example (h: Rα a a') (finish: Rα a' x) : Rα a x := by
-  grewrite [h]
-  exact finish
-
-example (h: Rα a a') (finish: Rα x a') : Rα x a := by
-  grewrite [h]
-  assumption
-
-example (h: Rα a a') (finish: Rβ (fαβ a') x): Rβ (fαβ a) x := by
-  grewrite [h]
-  assumption
-
-example (h: Rα a a') (finish: Rα a' a'): Rα a a := by
-  grewrite [h]
-  assumption
