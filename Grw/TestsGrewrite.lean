@@ -98,6 +98,4 @@ example : ∀ s, eqset (union (union s empty) s) s := by
   grewrite [unionIdem]
   apply Reflexive.rfl
 
-
-
 end Examples
