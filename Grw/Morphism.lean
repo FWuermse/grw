@@ -2,7 +2,7 @@ import Aesop
 import Grw.Eauto
 import Grw.AesopRuleset
 
-macro "grw" : attr => `(attr| aesop unsafe 100% apply (rule_sets := [grewrite]))
+macro "grw" : attr => `(attr| aesop unsafe 90% apply (rule_sets := [grewrite]))
 
 initialize
   Lean.registerTraceClass `Meta.Tactic.grewrite
@@ -75,7 +75,7 @@ instance iffInverseImplSubrelation : Subrel Iff impl⁻¹ :=
 class Proper {α : Sort u} (r : relation α) (m : α) where
   proper : r m m
 
-@[grw]
+@[aesop unsafe 100% apply (rule_sets := [grewrite])]
 instance reflexiveProper {α : Sort u} {r : relation α} [Reflexive r] (x : α) : Proper r x :=
   Proper.mk <| Reflexive.rfl x
 
@@ -360,3 +360,55 @@ instance properNotIff: Proper (Iff ⟹ Iff) Not :=
 eauto_create_db grewrite
 eauto_hint reflexiveProper : grewrite
 eauto_hint Reflexive.rfl : grewrite
+eauto_hint properAndIff : grewrite
+eauto_hint subrelIffImpl : grewrite
+eauto_hint properPointwiseRelation : grewrite
+
+#check impl ⟹ impl
+example : Proper ((. ∧ .) ⟹ (. ∧ .) ⟹ (. → .)) impl := by
+  constructor
+  rw [respectful]
+  intro a b
+  rw [respectful]
+
+  sorry
+
+example {P Q : Prop} {r : relation Prop} (h : r Q P) : flip impl Q P := by
+  have magic : Proper (r ⟹ flip impl) id := sorry
+  apply magic.proper
+  exact h
+
+example {P Q : α} {f : α → Prop} {r : relation α} (h : r Q P) : flip impl (f Q) (f P) := by
+  have magic : Proper (r ⟹ flip impl) f := sorry
+  apply magic.proper
+  exact h
+
+/--
+Some scetches to strengthen my intuition.
+Advantage of Proper seems to be that regardsless of the depth the proof is always one proper instance.
+
+Seems like the snd Proper arg is related to the structure around the desired term to rewrite.
+-/
+example {P Q : α} {f : α → β} {g : β → Prop} {r : relation α} (h : r Q P) : flip impl (g $ f Q) (g $ f P) := by
+  have magic : Proper (r ⟹ flip impl) (g ∘ f) := sorry
+  apply magic.proper
+  exact h
+
+example {P Q : α} {f : α → β} {g : β → Prop} {r : relation α} (h : r Q P) : flip impl (g $ f Q) (g $ f P) := by
+  have magic : Proper (r ⟹ flip impl) (g ∘ f) := sorry
+  apply magic.proper
+  exact h
+
+example {P Q : Prop} {r : relation Prop} (h : r Q P) : flip impl (Q → Q) (P → Q) := by
+  have magic : Proper (r ⟹ flip impl) (impl Q) := sorry
+  apply magic.proper
+  exact h
+
+example {P Q : Prop} {r : relation Prop} [p : Proper (Iff ⟹ r) id] : (Q → P) ∧ (Q → P) → (Q → Q) ∧ (Q → Q) := by
+  intro h
+  apply And.intro
+  . replace h := h.left
+    replace p := p.proper
+    rw [respectful] at p
+    sorry
+  sorry
