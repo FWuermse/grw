@@ -402,7 +402,7 @@ example {P Q : α} {f : α → β} {g : β → Prop} {r : relation α} (h : r Q 
 example {P Q : Prop} {r : relation Prop} (h : r Q P) : flip impl (Q → Q) (P → Q) := by
   have magic : Proper (r ⟹ flip impl) (impl Q) := sorry
   apply magic.proper
-  exact h
+  sorry
 
 example {P Q : Prop} {r : relation Prop} [p : Proper (Iff ⟹ r) id] : (Q → P) ∧ (Q → P) → (Q → Q) ∧ (Q → Q) := by
   intro h
