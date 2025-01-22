@@ -3,6 +3,7 @@
 import Grw.Morphism
 import Grw.Tactic
 import Grw.Eauto
+import Grw.RocqRw
 
 import Grw.TestsEauto
 import Grw.TestsGrewrite

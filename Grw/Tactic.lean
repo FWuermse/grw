@@ -1,20 +1,3 @@
-/-
-# Tactic
-
-## Arguments
-- Theorem p : ∀Φ, rα t u        e.g. grw [p]
-- Constraints Ψ : Set (?ₓ : Γ ⊢ Τ)  e.g. {hr : r x y, hr' : r y z}
-
-## Algorithm
-
-## Tips from Jannis:
-synth instance finds type class instances
-forall telescopes to move BVars to FVars
-isdefeq = unify
-withoutModifyingState at top level to restore state
-stay in MetaM for core functionality, TacticM entrypoint
--/
-
 import Lean.Elab.Tactic
 import Grw.Morphism
 import Grw.Eauto
@@ -31,100 +14,102 @@ set_option trace.aesop.ruleSet true
 namespace Tactic
 
 /--
-Note from paper:
-The unification function for a
-given lemma ρ is denoted unify_ρ(Γ, Ψ, τ ). It takes as input a typing environment,
-a constraint set and a term and tries to unify the left-hand side of the lemma’s
-applied relation with the term. It uses the same unification algorithm as the one
-used when applying a lemma during a proof.
+The result of a rewrite.
 
-get lhs of ρ (match for app)
-change all vars in Phi to mvars (forallMetaTelescope)
-isdefeq auf term t
-check which of the newly generated mvars are assigned
-(isAssignedOrDelayedAssigned)
-(<- instanciateMvar $ Expr.mvar ?x1 == Expr.mvar ?x1)
-the ones not assigned -> constraint set
-
-side note:
-unification in t can contain more mvars which could get assigned:
-  + if a rule fails
-  + look up (commitIfSuccess)
+`rewCar` is the carrier relation.
+`rewMVars` are constraints that result throughout the algorithm.
 -/
+structure RewriteResultInfo where
+  rewCar : Expr
+  rewFrom : Expr
+  rewTo : Expr
+  rewPrf : Expr
+  rewMVars : List Expr
+  deriving BEq
 
-abbrev RWM := ReaderT Expr MetaM
+/--
+The Information about the hypothesis uses in a rewrite (e.g. `h` for `grewrite [h]`).
+
+`prf`: Proof of the term (`h` in the above rewrite).
+`prf` must be of type `∀ ci,...,cj, r c1 c2` and the type of c1 and c2 is the carrier `car`. When variables are telescoped and not reassigned not during unification those locally bound vars are stored in `holes`.
+-/
+structure HypInfo where
+  prf : Expr
+  car : Expr
+  rel : Expr
+  sort : Bool -- Even required? Does it matter in Lean?
+  c1 : Expr -- Lhs of rel
+  c2 : Expr -- Rhs of rel
+  holes : List MVarId
+
+def toHypInfo (term : Expr) : MetaM HypInfo := do
+  let T ← inferType term
+  match T with
+  | .app (.app r lhs) rhs => do
+    pure ⟨term, ← inferType lhs, r, lhs.isSort, lhs, rhs, []⟩
+  | .forallE _ _ (.app (.app _ _) _) _ => do
+    let (exprs, _, .app (.app r lhs) rhs) ← forallMetaTelescope T | throwError "MetaTelescope broke structure of rw lemma"
+    let exprs := exprs.map fun e => e.mvarId!
+    pure ⟨term, ← inferType lhs, r, lhs.isSort, lhs, rhs, exprs.toList⟩
+  | _ => throwError "The given rewrite hypothesis {term} must be of the form ∀ Φs, R αs t u."
+
+/--
+`fail` not clear right now
+`id` is when we don't rewrite because no subterm can't be unified (ATOM or binary APP).
+`success` successful subterm rewrite.
+-/
+inductive RewriteResult where
+  | fail
+  | id
+  | success (r : RewriteResultInfo)
+
+abbrev RWM := ReaderT HypInfo MetaM <| List MVarId × RewriteResult
 
 private def srep : Nat → String
   | n => n.fold (fun _ s => s ++ "  ") ""
 
-def unify (Ψ : List MVarId) (t : Expr) : RWM <| List MVarId × Expr × Expr × Expr × Bool := do
+def unify (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
   let ρ ← read
-  let Tₚ ← inferType ρ
-  match Tₚ with
-  | .app (.app r lhs) rhs =>
-    let unifyable ← isDefEq lhs t -- Extends the local context
-    pure (Ψ, r, ρ, rhs, unifyable)
-  | .forallE _ _ (.app (.app _ _) _) _ =>
-    let (exprs, _, .app (.app r lhs) rhs) ← forallMetaTelescope Tₚ | throwError "MetaTelescope broke structure of rw lemma"
-    let unifyable ← isDefEq lhs t -- Extends the local context
-    let mut Ψ := Ψ
-    for expr in exprs do
-      -- Precondition e is forall
-      -- Invariant expr is a mvar
-      let mvarId := expr.mvarId!
-      let reassigned ← mvarId.isAssignedOrDelayedAssigned
-      if !reassigned then
-        Ψ := Ψ.insert mvarId
-    pure (Ψ, r, mkAppN ρ exprs, rhs, unifyable)
-  | _ => throwError "{ρ} is not a relation"
+  let lhs := if l2r then ρ.c1 else ρ.c2
+  let rhs := if l2r then ρ.c2 else ρ.c1
+  -- Take all initial holes and add collect the ones not reassigned to make them subgoals for the user to solve.
+  if ← isDefEq lhs t then
+    let subgoals ← ρ.holes.filterM fun mv => do pure !(← mv.isAssignedOrDelayedAssigned)
+    pure (Ψ, RewriteResult.success ⟨ρ.rel, t, rhs, ρ.prf, subgoals.map mkMVar⟩)
+  else
+    pure (Ψ, .id)
 
 /--
 Note from paper:
 The variant unify∗ ρ(Γ, Ψ, τ ) tries unification on all subterms and succeeds if at least one
 unification does. The function unify(Γ, Ψ, t, u) does a standard unification of t and u.
 -/
-def unifyStar (Ψ : List MVarId) (t : Expr) : RWM <| List MVarId × Expr × Expr × Expr × Bool := do
+def unifyStar (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
   let ρ ← read
-  let Tₚ ← inferType ρ
-  match Tₚ with
-  | .app (.app r lhs) rhs => do
-    let b ← IO.mkRef false
-    forEachExpr t fun t' => do
-      b.set <| (← isDefEq lhs t') || (← b.get)
-    pure (Ψ, r, ρ, rhs, ← b.get)
-  | .forallE _ _ (.app (.app _ _) _) _ => do
-    let (exprs, _, .app (.app r lhs) rhs) ← forallMetaTelescope Tₚ | throwError "MetaTelescope broke structure of rw lemma"
-    let b ← IO.mkRef false
-    forEachExpr t fun t' => do
-      b.set <| (← isDefEq lhs t') || (← b.get)
-    let mut Ψ := Ψ
-    for expr in exprs do
-      -- Precondition e is forall
-      -- Invariant expr is a mvar
-      let mvarId := expr.mvarId!
-      let reassigned ← mvarId.isAssignedOrDelayedAssigned
-      if !reassigned then
-        Ψ := Ψ.insert mvarId
-    pure (Ψ, r, mkAppN ρ exprs, rhs, ← b.get)
-  | _ => throwError "{ρ} is not a relation"
+  let lhs := if l2r then ρ.c1 else ρ.c2
+  let rhs := if l2r then ρ.c2 else ρ.c1
+  let b ← IO.mkRef false
+  forEachExpr t fun t' => do
+    b.set <| (← isDefEq lhs t') || (← b.get)
+  if ← b.get then
+    let subgoals ← ρ.holes.filterM fun mv => do pure !(← mv.isAssignedOrDelayedAssigned)
+    pure (Ψ, RewriteResult.success ⟨ρ.rel, t, rhs, ρ.prf, subgoals.map mkMVar⟩)
+  else
+    pure (Ψ, .id)
 
-def atom (Ψ : List MVarId) (t : Expr) : RWM <| List MVarId × Expr × Expr × Expr := do
-  let ρ ← read
-  /-
-  preconditions:
-    - No other rule can be applied
-    - Unify* failed
-  -/
-  let (Ψ', u, R, p, b) ← unifyStar Ψ t ρ
-  if b then
-    return (Ψ', R, u, p)
+def atom (Ψ : List MVarId) (t : Expr) (r2l : Bool) : RWM := do
+  -- TODO probably a duplicate check.
+  if let (Ψ, .success res) ← unifyStar Ψ t r2l then
+    return (Ψ, .success res)
   let T ← inferType t
   let S ← mkFreshExprMVar <| ← mkAppM ``relation #[T]
   let m ← mkFreshExprMVar <| ← mkAppM ``Proper #[S, t]
   -- TODO confirm below line
   let p ← mkAppOptM ``Proper.proper #[none, none, none, m]
-  -- paper says include S.mvardId! But it seems counterintuitive to guess the relation aswell
-  return (Ψ ∪ [m.mvarId!], S, t, p)
+  -- paper says include S.mvardId! But those will implicitly reappear when setting new goals
+  let u := t
+  logInfo m!"{t} ↝ {u}, Proof: {p}, Relation: {S}"
+  return (Ψ ∪ [m.mvarId!], .success ⟨S, t, t, p, []⟩)
 
 private def getRelType (rel : Expr) : Expr :=
   if let .app _ b := rel then
@@ -132,89 +117,113 @@ private def getRelType (rel : Expr) : Expr :=
   else
     rel
 
+def arrowCount (curr : Nat) : Expr → Nat
+  | .forallE n T b i => arrowCount (curr + 1) b
+  | _ => curr
+
+def respectfulN (mvars : List Expr) : MetaM  Expr :=
+  match mvars with
+  | x :: [] => pure x
+  | x :: xs => do mkAppM ``respectful #[x, ← respectfulN xs]
+  | _ => throwError "Cannot create empty respectful chain."
+
+
 /--
 `rew` always succeeds and returns a tuple (Ψ, R, τ', p) with the output constraints, a relation R, a new term τ' and a proof p : R τ τ'. In case no rewrite happens we can just have an application of ATOM.
 
 This output tuple represents the proof sekelton that is used in the proof search.
 -/
-partial def rew (Ψ : List MVarId) (t : Expr) (depth : Nat) : RWM (List MVarId × Expr × Expr × Expr) := do
+partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : Bool) (depth : Nat) : RWM := do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"{srep <| depth}rew Ψ ({t}) ρ") do
   let ρ ← read
-  let Ρ ← inferType ρ
-  /-
-  invariants:
-    - ρ is of type Relation
-  -/
-  let (Ψ', r, p', u, unifyable) ← unify Ψ t ρ
-  if unifyable then
-    trace[Meta.Tactic.grewrite] "{srep depth} |UNIFY⇓ {t} ↝ {u}"
-    return (Ψ', r, u, p')
-  trace[Meta.Tactic.grewrite] "{srep depth} |Unify⇑ {t}"
+  if let (Ψ', .success res) ← unify Ψ t l2r ρ then
+    trace[Meta.Tactic.grewrite] "{srep depth} |UNIFY⇓ {res.rewFrom} ↝ {res.rewTo}"
+    logInfo m!"{t} ↝ {res.rewTo}, Proof: {res.rewPrf}, Relation: {res.rewCar}"
+    return (Ψ', .success res)
   match t with
   | .app f e => do
     let Tf ← whnf <| ← inferType f
-    if let .some (_τ, σ) := Tf.arrow? then
+    if let .some (τ, σ) := Tf.arrow? then
       trace[Meta.Tactic.grewrite] "{srep depth} |APPSUB ({f}) ({e})"
-      let (Ψ, F, f', pf) ← rew Ψ f (depth+1) ρ
-      let (Ψ, E, e', pe) ← rew Ψ e (depth+1) ρ
-      /-
-      preconditions:
-        - t is an application f e
-        - when e is of type τ then f must be of τ → σ
-        - rewrite on f happened
-        - rewrite on e happened
-        -type(Γ, Ψ, f)↑ ≡ τ → σ
-      -/
-      let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
-      let sub ← mkFreshExprMVar <| ← mkAppM ``Subrel #[F, ← mkAppM ``respectful #[E, rel]]
-      trace[Meta.Tactic.grewrite] m!"{srep depth} {sub}"
-      -- TODO is Subrel.subrelation correct here? -> Yes seems like the paper means Subrel.subrelation implicitly as it's the only constructor.
-      let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, sub, f, f', pf, e, e', pe]
-      -- paper says include S.mvardId! But it seems counterintuitive to guess the relation aswell
-      pure (Ψ ∪ [sub.mvarId!], rel, .app f' e', p)
+      let (Ψ, fRes) ← rew Ψ f none l2r (depth+1) ρ
+      let (Ψ, eRes) ← rew Ψ e none l2r (depth+1) ρ
+      match (fRes, eRes) with
+      | (.id, .id) =>
+        logInfo "Id case"
+        pure (Ψ, .id)
+      | (.success fInfo, .success eInfo) =>
+        -- Expensive case if both sides of the app can be rewritten (usually results in unfolded apps).
+        let Expr.app r a := f | throwError "Application is not a relation"
+        -- the next four lines just determine the ==> ... ==> chain when we skipped id rws.
+        let mvars := fInfo.rewMVars ∪ eInfo.rewMVars
+        let args := mvars ∪ desiredRel.toList
+        let args := if args.length < arrowCount 1 (← inferType r) then [ρ.rel] ∪ args else args
+        let respectful ← respectfulN <| args ∪ desiredRel.toList
+        logInfo m!"Respectfulchain: {respectful}"
+        let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, r]
+        let p ← mkAppOptM ``Proper.proper #[none, none, none, prp]
+        let u := .app fInfo.rewTo eInfo.rewTo
+        let Ψ := Ψ ∪ [prp.mvarId!]
+        logInfo m!"APPSUB: {t} ↝ {u}, Proof: {p}, Relation: {prp}, Psi: {Ψ}"
+        pure (Ψ, .success ⟨prp, t, u, p, fInfo.rewMVars ∪ eInfo.rewMVars⟩)
+      | (.success f, .id) => do
+        logInfo "Case not handled."
+        pure (Ψ, .id)
+      | (.id, .success e) =>
+        -- When only the rhs succeeds with a rewrite we defer the generated constraints and avoid unneccessary nesting.
+        let rel ← match desiredRel with
+        | .some rel => pure rel
+        | .none => do pure <| ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
+        let lhs := if e.rewMVars.isEmpty then ρ.rel else e.rewMVars.get! 0
+        let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[← mkAppM ``respectful #[lhs, rel], f]
+        let p ← mkAppOptM ``Proper.proper #[none, none, f, prp]
+        let u := .app f e.rewTo
+        -- When we're in the middle of an appN we want to wait with creating the constraints until on top (collecting relation holes as we go to later build ==> ... ==> with them).
+        if arrowCount 0 (← inferType f) < 2 then
+          let Ψ := Ψ ∪ [prp.mvarId!]
+          logInfo m!"APPSUB_ {t} ↝ {u}, Proof: {p}, Relation: {rel}, arrwos: {arrowCount 0 Tf}"
+          return (Ψ, .success ⟨rel, t, u, p, e.rewMVars ∪ [rel]⟩)
+        else
+          -- At this point our holes are taken care of and we just skip until there is something to do
+          logInfo m!"APPSUB_skip {t} ↝ {u}, Proof: {p}, Relation: {rel}, arrwos: {arrowCount 0 Tf}"
+          pure (Ψ, .success ⟨rel, t, u, p, e.rewMVars⟩)
+      | _ => return (Ψ, .fail)
     else
-      atom Ψ t
+      atom Ψ t l2r
   | .lam n T b i => do
     trace[Meta.Tactic.grewrite] "{srep depth} |LAM {t}"
-    lambdaTelescope t (fun xs b => do
-      let (Ψ, S, b, p) ← rew Ψ b (depth+1) ρ
-      /-
-      preconditions:
-        - t is a lambda abstraction λ x.b
-        - rewrite on b happened
-        - xs always len 1 as we only consider the outermost lam
-      -/
-      let .app (.app _ lhs) _ := (← inferType) | throwError m!"{S} in {t} must be a relation."
+    lambdaTelescope t (fun _xs b => do
+      let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← rew Ψ b none l2r (depth+1) ρ | return (Ψ, .id)
+      let .app (.app _ lhs) _ := S | throwError m!"{S} in {t} must be a relation."
       let S ← mkAppM ``pointwiseRelation #[← inferType lhs, S]
       let p := .lam n T p i
-      pure (Ψ, S, .lam n T b i, p))
+      let u := .lam n T b i
+      logInfo m!"LAM: {t} ↝ {u}, Proof: {p}, Relation: {S}"
+      pure (Ψ, .success ⟨S, t, u, p, subgoals⟩))
   | .forallE n T b i => do
     if let .some (α, β) := t.arrow? then
       trace[Meta.Tactic.grewrite] "{srep depth} |Arrow {t}"
-      let (Ψ, S, b, p) ← rew Ψ (mkApp2 (mkConst ``impl) α β) (depth+1)
-      if let .app (.app _c α) β := b then
-        return (Ψ, S, ← mkArrow α β, p)
-      else
-        throwError "Rewrite of `Impl α β` resulted in a different (thus wrong) type."
-    trace[Meta.Tactic.grewrite] "{srep depth} |PI {t}"
-    let (Ψ', r, p', u, unifyable) ← unifyStar Ψ T
-    if unifyable then
-      pure (Ψ', r, u, p')
+      let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← rew Ψ (mkApp2 (mkConst ``impl) α β) desiredRel l2r (depth+1) | pure (Ψ, .id)
+      let .app (.app _ α) β := b | throwError "Rewrite of `Impl α β` resulted in a different (thus wrong) type."
+      let u ← mkArrow α β
+      logInfo m!"ARROW: {t} ↝ {u}, Proof: {p}, Relation: {S}"
+      return (Ψ, .success ⟨S, t, u, p, subgoals⟩)
     else
-      logInfo m!"term: {t}, allTerm: {← mkAppM ``all #[T, .lam n T b i]}"
-      let (Ψ, S, b, p) ← rew Ψ (← mkAppM ``all #[T, .lam n T b i]) (depth+1)
-      /-
-      preconditions:
-        - unify* on T failed
-        - rewrite on b as arrow with `all` happened
-      -/
-      if let .app _c (.lam n T b i) := b then
-        pure (Ψ, S, .forallE n T b i, p)
-      else
-        throwError "Rewrite of `all λ x ↦ y` resulted in a different (thus wrong) type."
+      trace[Meta.Tactic.grewrite] "{srep depth} |PI {t}"
+      let (Ψ', res) ← unifyStar Ψ T l2r
+      match res with
+      | .success info => return (Ψ', .success info)
+      | .id =>
+        let (Ψ, .success ⟨S, _, .app _ (.lam n T b i), p, subgoals⟩) ← rew Ψ (← mkAppM ``all #[T, .lam n T b i]) none l2r (depth+1)
+          | throwError "Rewrite of `all λ x ↦ y` resulted in a different (thus wrong) type."
+        let u := .forallE n T b i
+        logInfo m!"{t} ↝ {u}, Proof: {p}, Relation: {S}"
+        pure (Ψ, .success ⟨S, t, u, p, subgoals⟩)
+      | .fail => return (Ψ , .fail)
   | _ => do
     trace[Meta.Tactic.grewrite] "{srep depth} |ATOM {t}"
-    atom Ψ t
+    --atom Ψ t l2r
+    pure (Ψ, .id)
 
 def aesopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"proofSearch") do
@@ -248,36 +257,116 @@ def eautoSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
 
 def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   let goal ← getMainGoal
+  logInfo m!"{Ψ}, main goal: {goal}"
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
 
-def algorithm (ps : Syntax.TSepArray `ident ",") : TacticM Unit := withMainContext do
+declare_syntax_cat rw
+syntax ("←")? ident: rw
+
+def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"algorithm") do
   let lctx ← getLCtx
   -- Confirm all passed lemmas are in the local context
-  let mut ldecls : List LocalDecl := []
+  let mut ldecls : List (LocalDecl × Bool × TSyntax `rw) := []
   for ps' in lctx do
     for p in ps.getElems do
-      let name := p.getId
+      let (name, l2r) ← match p with
+      | `(rw|← $i:ident) => do pure (i.getId, false)
+      | `(rw|$i:ident) => do pure (i.getId, true)
+      | s => throwError m!"syntax {s} is invalid."
       if name == ps'.userName then
-        ldecls := ldecls ++ [ps']
+        ldecls := ldecls ++ [(ps', l2r, p)]
       else
         continue
-  for ldecl in ldecls do
+  for (ldecl, l2r, stx) in ldecls do
     let goal ← getMainGoal
-    let ρ := ldecl.toExpr
     let goalType ← goal.getType
     let Ψ := []
-    let (Ψ, R, u, p) ← rew Ψ goalType 0 ρ
-    -- Final rw for goal is subrel flip impl (see: https://coq.zulipchat.com/#narrow/channel/237977-Coq-users/topic/.E2.9C.94.20Generalized.20rewriting.20-.20proof.20skeleton.20generation)
-    let finalGoal ← mkAppM ``Subrel #[R, ← mkAppM ``flip #[mkConst ``impl]]
-    let m ← mkFreshExprMVar finalGoal
-    let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
-    let Ψ := Ψ.insert m.mvarId!
-    trace[Meta.Tactic.grewrite]"Starting Proof Search"
-    eautoSearch Ψ p
+    let ρ ← toHypInfo ldecl.toExpr
+    let (Ψ, res) ← rew Ψ goalType (← mkAppM ``flip #[mkConst ``impl]) l2r 0 ρ
+    match res with
+    | .id => logWarningAt stx m!"Nothing to rewrite for {ldecl.userName}."
+    | .fail => logError "Rewrite failed to generate constraints."
+    | .success ⟨r, _, u, p, subgoals⟩ =>
+      -- Final rw for goal is subrel flip impl (see: https://coq.zulipchat.com/#narrow/channel/237977-Coq-users/topic/.E2.9C.94.20Generalized.20rewriting.20-.20proof.20skeleton.20generation)
+      --let finalGoal ← mkAppM ``Subrel #[r, ← mkAppM ``flip #[mkConst ``impl]]
+      --let m ← mkFreshExprMVar finalGoal
+      --let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
+      --let Ψ := Ψ.insert m.mvarId!
 
-elab "grewrite" "[" ps:ident,+ "]" : tactic =>
+
+      -- It doesn't matter if Subrel or not. The final proof should be: (some goal with P) <- (some goal with Q)
+      trace[Meta.Tactic.grewrite]"Starting Proof Search:"
+      trace[Meta.Tactic.grewrite]"Solving {Ψ}"
+      -- TODO: set subgoals
+      nopSearch Ψ p
+
+elab "grewrite" "[" ps:rw,+ "]" : tactic =>
   algorithm ps
 
 end Tactic
+
+/- ×
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
+  ?m2 : ProperProxy ?r Q
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
+  intros P Q H
+  grewrite [H]
+  sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> flip impl) (impl Q)
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
+  intros P Q H
+  grewrite [H]
+  sorry
+
+-- This is (seemingly) just different by moving the first applicant out the app into a proxy. Still sus.
+/-
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> ?r0 ==> ?r) impl
+  ?m2 : ProperProxy ?r0 Q
+  ?m2 : Proper (Iff ==> ?r ==> flip impl) And
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (P → Q) := by
+  intros P Q H
+  grewrite [H]
+  sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> ?r) (impl Q)
+  ?m2 : Proper (Iff ==> ?r ==> flip impl) And
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (Q → P) := by
+  intros P Q H
+  grewrite [H]
+  sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> ?r) (impl Q)
+  ?m2 : Proper (?r ==> flip impl) (And Q)
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → P) := by
+  intros P Q H
+  grewrite [H]
+  sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (?r ==> ?r0 ==> flip impl) and
+  ?m2 : Proper (iff ==> ?r0) (impl Q)
+  ?r : Relation Prop
+  ?m3 : Proper (Iff => ?r) (impl Q)
+  ?r0 : Relation Prop
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
+  intros P Q H
+  grewrite [H]
+  sorry

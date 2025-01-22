@@ -57,19 +57,19 @@ instance implTransitive : Transitive impl :=
 
 @[grw]
 class Subrel {α : Sort u} (q r : relation α) : Prop where
-  subrelation : ∀ x y, q x y → r x y
+  subrelation : Subrelation q r
 
 @[grw]
 instance subrelationRefl {α : Sort u} {r : relation α} : Subrel r r :=
-  Subrel.mk fun _ _ => id
+  ⟨id⟩
 
 @[grw]
 instance iffImplSubrelation : Subrel Iff impl :=
-  Subrel.mk fun _ _ pq hq => propext pq ▸ hq
+  ⟨(propext . ▸ .)⟩
 
 @[grw]
 instance iffInverseImplSubrelation : Subrel Iff impl⁻¹ :=
-  Subrel.mk fun _ _ pq hq => propext pq ▸ hq
+  ⟨(propext . ▸ .)⟩
 
 @[grw]
 class Proper {α : Sort u} (r : relation α) (m : α) where
@@ -134,7 +134,7 @@ instance respectfulSubrelation [rs : Subrel r₂ r₁] [ss : Subrel s₁ s₂] :
   intro f f' p x y rxy
   apply ss.subrelation
   apply p
-  exact rs.subrelation x y rxy
+  exact rs.subrelation rxy
 
 @[grw]
 instance : Proper (Subrel ⟹ Subrel) (@pointwiseRelation α β) := by
@@ -176,9 +176,13 @@ theorem subrelationProper [p : Proper r₁ m] [sr : Subrel r₁ r₂] : Proper r
   apply sr.subrelation
   apply p.proper)
 
---@[aesop unsafe 10% apply (rule_sets := [grewrite])]
---instance part [@Proper (α → β) (r ⟹ r') m] [@Proper α r x] : Proper r' (m x) := by
-  --sorry
+@[aesop unsafe 10% apply (rule_sets := [grewrite])]
+instance «partial» (h₁ : Proper (r ⟹ r') m) (h₂ : Proper r x) : Proper r' (m x) := by
+  constructor
+  replace h₁ := h₁.proper
+  replace h₂ := h₂.proper
+  rw [respectful] at h₁
+  exact h₁ x x h₂
 
 @[grw]
 instance properInverse [p : Proper r m] : Proper r⁻¹ m := Proper.mk p.proper
@@ -313,7 +317,6 @@ instance properFlip [P: Proper (Rα ⟹ Rβ ⟹ Rγ) f]:
 @[grw]
 instance subrelEq [Reflexive R]: Subrel Eq R where
   subrelation h := by
-    intro y heq
     simp_all
     apply Reflexive.rfl
 
@@ -335,15 +338,11 @@ instance respectfulPER [hr₁ : PER r₁] [hr₂ : PER r₂]: PER (r₁ ⟹ r₂
 
 @[grw]
 instance subrelIffImpl: Subrel Iff impl where
-  subrelation h := by
-    intro g iff
-    apply iff.mp
+  subrelation h := h.mp
 
 @[grw]
 instance subrelIffFlipImpl: Subrel Iff (flip impl) where
-  subrelation h := by
-    intro g iff
-    apply iff.mpr
+  subrelation h := h.mpr
 
 @[grw]
 instance properAndIff: Proper (Iff ⟹ Iff ⟹ Iff) And :=
@@ -402,6 +401,9 @@ example {P Q : α} {f : α → β} {g : β → Prop} {r : relation α} (h : r Q 
 example {P Q : Prop} {r : relation Prop} (h : r Q P) : flip impl (Q → Q) (P → Q) := by
   have magic : Proper (r ⟹ flip impl) (impl Q) := sorry
   apply magic.proper
+  sorry
+  sorry
+  sorry
   sorry
 
 example {P Q : Prop} {r : relation Prop} [p : Proper (Iff ⟹ r) id] : (Q → P) ∧ (Q → P) → (Q → Q) ∧ (Q → Q) := by

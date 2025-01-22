@@ -9,6 +9,14 @@ set_option trace.Meta.Tactic.eauto.hints true
 set_option trace.Meta.Tactic.eauto.goals true
 set_option trace.Meta.Tactic.eauto.instances true
 
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
+  intro P Q h
+  --grewrite [h]
+
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
+  intro P Q h
+  --grewrite [h]
+
 -- ATOM
 example {r : relation Prop} [hp : Proper (r ⟹ Iff) id] : r a b → b → a := by
   intro rab hb
@@ -34,6 +42,12 @@ example {f : α → α} [Proper (r ⟹ r) f] [Proper (r ⟹ Iff) P] : r a a' →
 -- RW under lambda
 example {a : α} {P : (α → α) → Prop} [Proper (pointwiseRelation α r ⟹ Iff) P] : r a a' → P (λ _ => a') → P (λ _ => a) := by
   intro h finish
+  grewrite [h]
+  exact finish
+
+-- RW under Pi
+example {r : relation α} {P : α → Prop} [Proper (r ⟹ Iff) P] : r a a' → ∀ a', P a' → P a := by
+  intros h finish
   grewrite [h]
   exact finish
 
@@ -81,7 +95,9 @@ example (h: Rα a a') (finish: Rα a' a'): Rα a a := by
 
 -- More complex selection
 example (h: Rα a a') (finish: Pα a'): Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a := by
-  sorry
+  grewrite [h]
+  repeat (apply And.intro; assumption)
+  assumption
 
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P ) := by
   intros P Q H
@@ -148,7 +164,7 @@ end Examples
 Some Coq constraints for problems:
 -/
 
--- Produces: Subrel Iff (flip impl)
+-- Produces: Subrel Iff (flip impl) ✓
 example : ∀ P Q : Prop, (P ↔ Q) → Q → P := by
   intros P Q H HQ
   grewrite [H]
@@ -157,6 +173,13 @@ example : ∀ P Q : Prop, (P ↔ Q) → Q → P := by
 --Produces: Proper (r ⟹ flip impl) P
 example {r : relation α} {P : α → Prop} [Proper (r ⟹ Iff) P] : r a a' → P a' → P a := by
   intros h finish
+  grewrite [h]
+  have magic : Proper (r ⟹ flip impl) P := by
+    eauto
+    sorry
+  apply magic.proper
+  . exact h
+  . exact finish
   grewrite [h]
   exact finish
 
@@ -191,9 +214,11 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P):= by
 
 /-
 Produces: wrt. to subrelationProper and do_subrelation:
-  ?m1 : Proper (Iff ==> flip impl) (impl Q)
+  ?m0 : ProperProxy ?r Q
+  ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
+  ?mr : relation Prop
 -/
-example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
+example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
   intros P Q H
   grewrite [H]
   simp
@@ -225,13 +250,25 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   simp
 
 /-
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces wrt. to subrelationProper and do_subrelation:
   ?m1 : ProperProxy ?r0 (Q -> Q)
   ?m2 : Proper (?r ==> ?r0 ==> flip impl) And
   ?m3 : Proper (Iff ==> ?r) (impl Q)
   ?r : Relation Prop
+  ?r0 : Relation Prop
 -/
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → Q) := by
+  intros P Q H
+  grewrite [H]
+  simp
+-- SUS!!! Depending on where the id is we have less constraints???
+/-
+Produces wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (?r ==> flip impl) (And (Q -> Q))
+  ?m2 : Proper (Iff ==> ?r) (impl Q)
+  ?r : relation Prop
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
   simp
