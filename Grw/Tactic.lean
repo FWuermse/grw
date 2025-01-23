@@ -138,7 +138,6 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
   let ρ ← read
   if let (Ψ', .success res) ← unify Ψ t l2r ρ then
     trace[Meta.Tactic.grewrite] "{srep depth} |UNIFY⇓ {res.rewFrom} ↝ {res.rewTo}"
-    logInfo m!"{t} ↝ {res.rewTo}, Proof: {res.rewPrf}, Relation: {res.rewCar}"
     return (Ψ', .success res)
   match t with
   | .app f e => do
@@ -149,44 +148,54 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
       let (Ψ, eRes) ← rew Ψ e none l2r (depth+1) ρ
       match (fRes, eRes) with
       | (.id, .id) =>
-        logInfo "Id case"
         pure (Ψ, .id)
       | (.success fInfo, .success eInfo) =>
-        -- Expensive case if both sides of the app can be rewritten (usually results in unfolded apps).
-        let Expr.app r a := f | throwError "Application is not a relation"
+        -- Expensive case if both sides of the app can be rewritten (usually unfolded non binary apps).
+        let r := f.getAppFn
         -- the next four lines just determine the ==> ... ==> chain when we skipped id rws.
         let mvars := fInfo.rewMVars ∪ eInfo.rewMVars
         let args := mvars ∪ desiredRel.toList
         let args := if args.length < arrowCount 1 (← inferType r) then [ρ.rel] ∪ args else args
         let respectful ← respectfulN <| args ∪ desiredRel.toList
-        logInfo m!"Respectfulchain: {respectful}"
         let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, r]
         let p ← mkAppOptM ``Proper.proper #[none, none, none, prp]
         let u := .app fInfo.rewTo eInfo.rewTo
         let Ψ := Ψ ∪ [prp.mvarId!]
-        logInfo m!"APPSUB: {t} ↝ {u}, Proof: {p}, Relation: {prp}, Psi: {Ψ}"
         pure (Ψ, .success ⟨prp, t, u, p, fInfo.rewMVars ∪ eInfo.rewMVars⟩)
-      | (.success f, .id) => do
-        logInfo "Case not handled."
-        pure (Ψ, .id)
-      | (.id, .success e) =>
+      | (.id, .success eInfo) =>
         -- When only the rhs succeeds with a rewrite we defer the generated constraints and avoid unneccessary nesting.
         let rel ← match desiredRel with
         | .some rel => pure rel
         | .none => do pure <| ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
-        let lhs := if e.rewMVars.isEmpty then ρ.rel else e.rewMVars.get! 0
+        let lhs := if eInfo.rewMVars.isEmpty then ρ.rel else eInfo.rewMVars.get! 0
         let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[← mkAppM ``respectful #[lhs, rel], f]
         let p ← mkAppOptM ``Proper.proper #[none, none, f, prp]
-        let u := .app f e.rewTo
+        let u := .app f eInfo.rewTo
         -- When we're in the middle of an appN we want to wait with creating the constraints until on top (collecting relation holes as we go to later build ==> ... ==> with them).
         if arrowCount 0 (← inferType f) < 2 then
           let Ψ := Ψ ∪ [prp.mvarId!]
-          logInfo m!"APPSUB_ {t} ↝ {u}, Proof: {p}, Relation: {rel}, arrwos: {arrowCount 0 Tf}"
-          return (Ψ, .success ⟨rel, t, u, p, e.rewMVars ∪ [rel]⟩)
+          return (Ψ, .success ⟨rel, t, u, p, eInfo.rewMVars ∪ [rel]⟩)
         else
           -- At this point our holes are taken care of and we just skip until there is something to do
-          logInfo m!"APPSUB_skip {t} ↝ {u}, Proof: {p}, Relation: {rel}, arrwos: {arrowCount 0 Tf}"
-          pure (Ψ, .success ⟨rel, t, u, p, e.rewMVars⟩)
+          pure (Ψ, .success ⟨rel, t, u, p, eInfo.rewMVars⟩)
+      | (.success fInfo, .id) => do
+        -- When only the lhs succeeds we follow the same approach but use a proxy.
+        let rel ← match desiredRel with
+        | .some rel => pure rel
+        | .none => do pure <| ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
+        let lhs := if fInfo.rewMVars.isEmpty then ρ.rel else fInfo.rewMVars.get! 0
+        let r := f.getAppFn
+        let mvar ← mkFreshExprMVar <| ← mkAppM ``relation #[← inferType e]
+        let respectful ← respectfulN [lhs, mvar, rel]
+        let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, r]
+        let proxy ← mkFreshExprMVar <| ← mkAppM ``ProperProxy #[mvar, e]
+        let p ← mkAppOptM ``Proper.proper #[none, none, none, prp]
+        let u := .app fInfo.rewTo e
+        if arrowCount 0 (← inferType e) < 2 then
+          let Ψ := Ψ ∪ [prp.mvarId!, proxy.mvarId!]
+          return (Ψ, .success ⟨rel, t, u, p, fInfo.rewMVars ∪ [rel]⟩)
+        else
+          pure (Ψ, .success ⟨rel, t, u, p, fInfo.rewMVars⟩)
       | _ => return (Ψ, .fail)
     else
       atom Ψ t l2r
@@ -198,7 +207,6 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
       let S ← mkAppM ``pointwiseRelation #[← inferType lhs, S]
       let p := .lam n T p i
       let u := .lam n T b i
-      logInfo m!"LAM: {t} ↝ {u}, Proof: {p}, Relation: {S}"
       pure (Ψ, .success ⟨S, t, u, p, subgoals⟩))
   | .forallE n T b i => do
     if let .some (α, β) := t.arrow? then
@@ -206,7 +214,6 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
       let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← rew Ψ (mkApp2 (mkConst ``impl) α β) desiredRel l2r (depth+1) | pure (Ψ, .id)
       let .app (.app _ α) β := b | throwError "Rewrite of `Impl α β` resulted in a different (thus wrong) type."
       let u ← mkArrow α β
-      logInfo m!"ARROW: {t} ↝ {u}, Proof: {p}, Relation: {S}"
       return (Ψ, .success ⟨S, t, u, p, subgoals⟩)
     else
       trace[Meta.Tactic.grewrite] "{srep depth} |PI {t}"
@@ -217,7 +224,6 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
         let (Ψ, .success ⟨S, _, .app _ (.lam n T b i), p, subgoals⟩) ← rew Ψ (← mkAppM ``all #[T, .lam n T b i]) none l2r (depth+1)
           | throwError "Rewrite of `all λ x ↦ y` resulted in a different (thus wrong) type."
         let u := .forallE n T b i
-        logInfo m!"{t} ↝ {u}, Proof: {p}, Relation: {S}"
         pure (Ψ, .success ⟨S, t, u, p, subgoals⟩)
       | .fail => return (Ψ , .fail)
   | _ => do
@@ -257,7 +263,6 @@ def eautoSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
 
 def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   let goal ← getMainGoal
-  logInfo m!"{Ψ}, main goal: {goal}"
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
 
@@ -289,25 +294,27 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     | .id => logWarningAt stx m!"Nothing to rewrite for {ldecl.userName}."
     | .fail => logError "Rewrite failed to generate constraints."
     | .success ⟨r, _, u, p, subgoals⟩ =>
-      -- Final rw for goal is subrel flip impl (see: https://coq.zulipchat.com/#narrow/channel/237977-Coq-users/topic/.E2.9C.94.20Generalized.20rewriting.20-.20proof.20skeleton.20generation)
-      --let finalGoal ← mkAppM ``Subrel #[r, ← mkAppM ``flip #[mkConst ``impl]]
-      --let m ← mkFreshExprMVar finalGoal
-      --let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
-      --let Ψ := Ψ.insert m.mvarId!
+    logInfo m!"{Ψ}"
+    -- Final rw for goal is subrel flip impl (see: https://coq.zulipchat.com/#narrow/channel/237977-Coq-users/topic/.E2.9C.94.20Generalized.20rewriting.20-.20proof.20skeleton.20generation)
+    --let finalGoal ← mkAppM ``Subrel #[r, ← mkAppM ``flip #[mkConst ``impl]]
+    --let m ← mkFreshExprMVar finalGoal
+    --let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
+    --let Ψ := Ψ.insert m.mvarId!
 
 
-      -- It doesn't matter if Subrel or not. The final proof should be: (some goal with P) <- (some goal with Q)
-      trace[Meta.Tactic.grewrite]"Starting Proof Search:"
-      trace[Meta.Tactic.grewrite]"Solving {Ψ}"
-      -- TODO: set subgoals
-      nopSearch Ψ p
+    -- It doesn't matter if Subrel or not. The final proof should be: (some goal with P) <- (some goal with Q)
+    trace[Meta.Tactic.grewrite]"Starting Proof Search:"
+    trace[Meta.Tactic.grewrite]"Solving {Ψ}"
+    logInfo m!"{Ψ}"
+    -- TODO: set subgoals
+    nopSearch Ψ p
 
 elab "grewrite" "[" ps:rw,+ "]" : tactic =>
   algorithm ps
 
 end Tactic
 
-/- ×
+/- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
   ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
   ?m2 : ProperProxy ?r Q
@@ -315,7 +322,7 @@ Produces: wrt. to subrelationProper and do_subrelation:
 example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
   intros P Q H
   grewrite [H]
-  sorry
+  repeat sorry
 
 /- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
@@ -324,9 +331,9 @@ Produces: wrt. to subrelationProper and do_subrelation:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
   intros P Q H
   grewrite [H]
-  sorry
+  repeat sorry
 
--- This is (seemingly) just different by moving the first applicant out the app into a proxy. Still sus.
+-- ✓ This is (seemingly) just different by moving the first applicant out the app into a proxy. Still sus.
 /-
 Produces: wrt. to subrelationProper and do_subrelation:
   ?m1 : Proper (Iff ==> ?r0 ==> ?r) impl
@@ -336,7 +343,7 @@ Produces: wrt. to subrelationProper and do_subrelation:
 example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (P → Q) := by
   intros P Q H
   grewrite [H]
-  sorry
+  repeat sorry
 
 /- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
@@ -346,7 +353,7 @@ Produces: wrt. to subrelationProper and do_subrelation:
 example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
-  sorry
+  repeat sorry
 
 /- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
@@ -356,7 +363,18 @@ Produces: wrt. to subrelationProper and do_subrelation:
 example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
-  sorry
+  repeat sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m2 : Proper (?r ==> ?r0 ==> ?r) impl
+  ?m3 : ProperProxy ?r0 Q
+  ?m1 : Proper (?r ==> flip impl) (And Q)
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (P → Q) := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
 
 /- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
@@ -369,4 +387,4 @@ Produces: wrt. to subrelationProper and do_subrelation:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
-  sorry
+  repeat sorry

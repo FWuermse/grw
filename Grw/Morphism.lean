@@ -75,6 +75,11 @@ instance iffInverseImplSubrelation : Subrel Iff impl⁻¹ :=
 class Proper {α : Sort u} (r : relation α) (m : α) where
   proper : r m m
 
+-- This is a Coq hack taking an identical class that works with different instance
+@[grw]
+class ProperProxy {α : Sort u} (r : relation α) (m : α) where
+  proxy : r m m
+
 @[aesop unsafe 100% apply (rule_sets := [grewrite])]
 instance reflexiveProper {α : Sort u} {r : relation α} [Reflexive r] (x : α) : Proper r x :=
   Proper.mk <| Reflexive.rfl x
