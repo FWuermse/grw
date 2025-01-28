@@ -127,7 +127,6 @@ def respectfulN (mvars : List Expr) : MetaM  Expr :=
   | x :: xs => do mkAppM ``respectful #[x, ← respectfulN xs]
   | _ => throwError "Cannot create empty respectful chain."
 
-
 /--
 `rew` always succeeds and returns a tuple (Ψ, R, τ', p) with the output constraints, a relation R, a new term τ' and a proof p : R τ τ'. In case no rewrite happens we can just have an application of ATOM.
 
@@ -153,49 +152,58 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
         -- Expensive case if both sides of the app can be rewritten (usually unfolded non binary apps).
         let r := f.getAppFn
         -- the next four lines just determine the ==> ... ==> chain when we skipped id rws.
-        let mvars := fInfo.rewMVars ∪ eInfo.rewMVars
-        let args := mvars ∪ desiredRel.toList
+        let args := [fInfo.rewCar, eInfo.rewCar] ∪ desiredRel.toList
         let args := if args.length < arrowCount 1 (← inferType r) then [ρ.rel] ∪ args else args
         let respectful ← respectfulN <| args ∪ desiredRel.toList
         let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, r]
-        let p ← mkAppOptM ``Proper.proper #[none, none, none, prp]
+        let p ← mkAppOptM ``Proper.proper #[none, none, none, prp, none, none, fInfo.rewPrf, none, none, eInfo.rewPrf]
         let u := .app fInfo.rewTo eInfo.rewTo
-        let Ψ := Ψ ∪ [prp.mvarId!]
-        pure (Ψ, .success ⟨prp, t, u, p, fInfo.rewMVars ∪ eInfo.rewMVars⟩)
+        let Ψ := [prp.mvarId!] ∪ Ψ
+        logInfo m!"-- from: {t}, to: {u}, proof: {p} --"
+        pure (Ψ, .success ⟨eInfo.rewCar, t, u, p, fInfo.rewMVars ∪ eInfo.rewMVars⟩)
       | (.id, .success eInfo) =>
         -- When only the rhs succeeds with a rewrite we defer the generated constraints and avoid unneccessary nesting.
-        let rel ← match desiredRel with
-        | .some rel => pure rel
-        | .none => do pure <| ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
-        let lhs := if eInfo.rewMVars.isEmpty then ρ.rel else eInfo.rewMVars.get! 0
-        let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[← mkAppM ``respectful #[lhs, rel], f]
-        let p ← mkAppOptM ``Proper.proper #[none, none, f, prp]
+        -- TODO: something in this case is hardcoded/static that should be retreived from eInfo!
+        let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
+        let rhs ← match desiredRel with
+        | .some desired => pure desired
+        | .none => do pure rel
         let u := .app f eInfo.rewTo
         -- When we're in the middle of an appN we want to wait with creating the constraints until on top (collecting relation holes as we go to later build ==> ... ==> with them).
         if arrowCount 0 (← inferType f) < 2 then
-          let Ψ := Ψ ∪ [prp.mvarId!]
-          return (Ψ, .success ⟨rel, t, u, p, eInfo.rewMVars ∪ [rel]⟩)
+          let lhs := ρ.rel
+          let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[← mkAppM ``respectful #[lhs, rhs], f]
+          logInfo m!"{prp}, {eInfo.rewPrf}"
+          let p ← mkAppOptM ``Proper.proper #[none, none, none, prp, none, none, eInfo.rewPrf]
+          let Ψ := [prp.mvarId!] ∪ Ψ
+          logInfo m!"id eInfo -> do: from: {t}, to: {u}, proof: {p}"
+          return (Ψ, .success ⟨rel, t, u, p, eInfo.rewMVars⟩)
         else
           -- At this point our holes are taken care of and we just skip until there is something to do
-          pure (Ψ, .success ⟨rel, t, u, p, eInfo.rewMVars⟩)
+          logInfo m!"id eInfo -> skip: from: {t}, to: {u}, proof: {eInfo.rewPrf}"
+          pure (Ψ, .success ⟨eInfo.rewCar, t, u, eInfo.rewPrf, eInfo.rewMVars⟩)
       | (.success fInfo, .id) => do
         -- When only the lhs succeeds we follow the same approach but use a proxy.
-        let rel ← match desiredRel with
-        | .some rel => pure rel
-        | .none => do pure <| ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
-        let lhs := if fInfo.rewMVars.isEmpty then ρ.rel else fInfo.rewMVars.get! 0
-        let r := f.getAppFn
-        let mvar ← mkFreshExprMVar <| ← mkAppM ``relation #[← inferType e]
-        let respectful ← respectfulN [lhs, mvar, rel]
-        let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, r]
-        let proxy ← mkFreshExprMVar <| ← mkAppM ``ProperProxy #[mvar, e]
-        let p ← mkAppOptM ``Proper.proper #[none, none, none, prp]
+        let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
+        let rhs ← match desiredRel with
+        | .some desired => pure desired
+        | .none => do pure rel
+        let lhs := ρ.rel
         let u := .app fInfo.rewTo e
         if arrowCount 0 (← inferType e) < 2 then
-          let Ψ := Ψ ∪ [prp.mvarId!, proxy.mvarId!]
-          return (Ψ, .success ⟨rel, t, u, p, fInfo.rewMVars ∪ [rel]⟩)
+          let r := f.getAppFn
+          let mvar ← mkFreshExprMVar <| ← mkAppM ``relation #[← inferType e]
+          let respectful ← respectfulN [lhs, mvar, rhs]
+          let proxy ← mkFreshExprMVar <| ← mkAppM ``ProperProxy #[mvar, e]
+          let pp ← mkAppOptM ``ProperProxy.proxy #[none, none, none, proxy]
+          let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, r]
+          let p ← mkAppOptM ``Proper.proper #[none, none, none, prp, none, none, fInfo.rewPrf, none, none, pp]
+          let Ψ := [prp.mvarId!, proxy.mvarId!] ∪ Ψ
+          logInfo m!"fInfo id -> do: from: {t}, to: {u}, proof: {p}"
+          return (Ψ, .success ⟨rel, t, u, p, fInfo.rewMVars⟩)
         else
-          pure (Ψ, .success ⟨rel, t, u, p, fInfo.rewMVars⟩)
+          logInfo m!"fInfo id -> skip: from: {t}, to: {u}, proof: {fInfo.rewPrf}"
+          pure (Ψ, .success ⟨fInfo.rewCar, t, u, fInfo.rewPrf, fInfo.rewMVars⟩)
       | _ => return (Ψ, .fail)
     else
       atom Ψ t l2r
@@ -263,6 +271,9 @@ def eautoSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
 
 def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   let goal ← getMainGoal
+  logInfo goal
+  logInfo p
+  logInfo m!"{Ψ}"
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
 
@@ -289,23 +300,27 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     let goalType ← goal.getType
     let Ψ := []
     let ρ ← toHypInfo ldecl.toExpr
+    let flipImpl' ← mkAppM ``flip #[mkConst ``impl]
+    let impl' := mkConst ``impl
     let (Ψ, res) ← rew Ψ goalType (← mkAppM ``flip #[mkConst ``impl]) l2r 0 ρ
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {ldecl.userName}."
     | .fail => logError "Rewrite failed to generate constraints."
-    | .success ⟨r, _, u, p, subgoals⟩ =>
-    logInfo m!"{Ψ}"
+    | .success ⟨r, t, u, p, subgoals⟩ =>
+    logInfo m!"{r}, {t}, {u}, {p}"
     -- Final rw for goal is subrel flip impl (see: https://coq.zulipchat.com/#narrow/channel/237977-Coq-users/topic/.E2.9C.94.20Generalized.20rewriting.20-.20proof.20skeleton.20generation)
-    --let finalGoal ← mkAppM ``Subrel #[r, ← mkAppM ``flip #[mkConst ``impl]]
-    --let m ← mkFreshExprMVar finalGoal
-    --let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
+    let finalGoal ← mkAppM ``Subrel #[flipImpl', flipImpl']
+    let m ← mkFreshExprMVar finalGoal
+    logInfo m!"{Ψ}"
+    --let p ← mkAppOptM ``Subrel.subrelation #[none, none, ← mkAppM ``flip #[mkConst ``impl], m, none, none, p]
     --let Ψ := Ψ.insert m.mvarId!
-
-
     -- It doesn't matter if Subrel or not. The final proof should be: (some goal with P) <- (some goal with Q)
+    --let p ← mkAppOptM' p #[none, none, ρ.prf]
+    --let p ← mkAppOptM' p #[] -- THIS must be the previous proof term (sub proof)
+    let p ← mkAppOptM ``Subrel.subrelation #[none, flipImpl', flipImpl', m, t, u, p]
     trace[Meta.Tactic.grewrite]"Starting Proof Search:"
     trace[Meta.Tactic.grewrite]"Solving {Ψ}"
-    logInfo m!"{Ψ}"
+    logInfo m!"Relation: {r} must be relation Prop"
     -- TODO: set subgoals
     nopSearch Ψ p
 
@@ -316,6 +331,44 @@ end Tactic
 
 /- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> ?r) (impl Q)
+  ?m2 : Proper (?r ==> flip impl) (And Q)
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → P) := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
+
+example (p : Proper (Iff ⟹ m1 ⟹ flip impl) And) (hs : Subrel (flip impl) (flip impl)) (rfl: m1 P P) : (P ↔ Q) → Q ∧ (Q → P) := by
+  intro h
+  have p := @Proper.proper (Prop → Prop → Prop) (Iff ⟹ m1 ⟹ flip impl) And p
+  have p := p _ _ h
+  have p := @Subrel.subrelation Prop (flip impl) (flip impl) hs (P ∧ (P → Q)) (Q ∧ (Q → Q)) (p _ _ sorry)
+  sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m2 : Proper (?r ==> ?r0 ==> ?r) impl
+  ?m3 : ProperProxy ?r0 Q
+  ?m1 : Proper (?r ==> flip impl) (And Q)
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (P → Q) := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
+  ?m2 : ProperProxy ?r Q
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → P := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
   ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
   ?m2 : ProperProxy ?r Q
 -/
@@ -323,6 +376,31 @@ example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
   intros P Q H
   grewrite [H]
   repeat sorry
+
+example (m2 : Proper (Iff ⟹ flip impl) <| impl Q) (hs : Subrel (flip impl) (flip impl)) : (P ↔ Q) → (Q → P) := by
+  intro h
+  -- That's the proper proof I already have
+  have p := @Proper.proper (Prop → Prop) (Iff ⟹ flip impl) $ impl Q
+  have pp := p _ _ h
+  -- Do the relations have to be guessed?
+  have ps := @Subrel.subrelation Prop (flip impl) (flip impl) hs (Q → P) (Q → Q) pp
+  apply ps
+  sorry
+
+example (m1 : relation Prop) (m11 : Proper (Iff ⟹ m1 ⟹ flip impl) impl) (hm1 : ProperProxy m1 Q) (m2 : Proper (Iff ⟹ m1 ⟹ flip impl) <| impl) (hs : Subrel (flip impl) (flip impl)) : (P ↔ Q) → (P → Q) := by
+  intro h
+  -- That's the proper proof I already have
+  have p := @Proper.proper (Prop → Prop → Prop) (Iff ⟹ m1 ⟹ flip impl) impl m11
+  have p := p P Q h
+  -- Do the relations have to be guessed?
+  have p : flip impl (P → Q) (Q → Q) := @Subrel.subrelation Prop (flip impl) (flip impl) hs (P → Q) (Q → Q) sorry
+  apply p
+  sorry
+
+example (h : (m1 ⟹ flip impl) (impl P) (impl Q)) : flip impl (P → Q) (Q → Q) := by
+  rw [respectful] at h
+  replace h := h Q Q
+  sorry
 
 /- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
@@ -336,9 +414,9 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
 -- ✓ This is (seemingly) just different by moving the first applicant out the app into a proxy. Still sus.
 /-
 Produces: wrt. to subrelationProper and do_subrelation:
+  ?m2 : Proper (Iff ==> ?r ==> flip impl) And
   ?m1 : Proper (Iff ==> ?r0 ==> ?r) impl
   ?m2 : ProperProxy ?r0 Q
-  ?m2 : Proper (Iff ==> ?r ==> flip impl) And
 -/
 example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (P → Q) := by
   intros P Q H
@@ -351,27 +429,6 @@ Produces: wrt. to subrelationProper and do_subrelation:
   ?m2 : Proper (Iff ==> ?r ==> flip impl) And
 -/
 example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (Q → P) := by
-  intros P Q H
-  grewrite [H]
-  repeat sorry
-
-/- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
-  ?m1 : Proper (Iff ==> ?r) (impl Q)
-  ?m2 : Proper (?r ==> flip impl) (And Q)
--/
-example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → P) := by
-  intros P Q H
-  grewrite [H]
-  repeat sorry
-
-/- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
-  ?m2 : Proper (?r ==> ?r0 ==> ?r) impl
-  ?m3 : ProperProxy ?r0 Q
-  ?m1 : Proper (?r ==> flip impl) (And Q)
--/
-example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (P → Q) := by
   intros P Q H
   grewrite [H]
   repeat sorry
