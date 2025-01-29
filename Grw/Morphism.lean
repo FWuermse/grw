@@ -80,6 +80,16 @@ class Proper {α : Sort u} (r : relation α) (m : α) where
 class ProperProxy {α : Sort u} (r : relation α) (m : α) where
   proxy : r m m
 
+@[grw]
+class ReflexiveProxy {α : Sort u} (r : relation α) where
+  reflexive_proxy : ∀ x, r x x
+
+@[grw]
+theorem reflexiveProperProxy {α : Sort u} {r : relation α} [h : ReflexiveProxy r] (x : α) : ProperProxy r x := ⟨h.reflexive_proxy x⟩
+
+@[grw]
+theorem reflexiveReflexiveProxy {α : Sort u} {r : relation α} [hr : Reflexive r] : ReflexiveProxy r := ⟨hr.rfl⟩
+
 @[aesop unsafe 100% apply (rule_sets := [grewrite])]
 instance reflexiveProper {α : Sort u} {r : relation α} [Reflexive r] (x : α) : Proper r x :=
   Proper.mk <| Reflexive.rfl x

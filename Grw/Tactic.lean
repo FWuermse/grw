@@ -154,7 +154,7 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
         -- the next four lines just determine the ==> ... ==> chain when we skipped id rws.
         let args := [fInfo.rewCar, eInfo.rewCar] ∪ desiredRel.toList
         let args := if args.length < arrowCount 1 (← inferType r) then [ρ.rel] ∪ args else args
-        let respectful ← respectfulN <| args ∪ desiredRel.toList
+        let respectful ← respectfulN args
         let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, r]
         let p ← mkAppOptM ``Proper.proper #[none, none, none, prp, none, none, fInfo.rewPrf, none, none, eInfo.rewPrf]
         let u := .app fInfo.rewTo eInfo.rewTo
@@ -171,10 +171,11 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
         let u := .app f eInfo.rewTo
         -- When we're in the middle of an appN we want to wait with creating the constraints until on top (collecting relation holes as we go to later build ==> ... ==> with them).
         if arrowCount 0 (← inferType f) < 2 then
-          let lhs := ρ.rel
+          let lhs := eInfo.rewCar
           let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[← mkAppM ``respectful #[lhs, rhs], f]
-          logInfo m!"{prp}, {eInfo.rewPrf}"
+          logInfo m!"prp: {prp}"
           let p ← mkAppOptM ``Proper.proper #[none, none, none, prp, none, none, eInfo.rewPrf]
+          logInfo m!"p: {p}"
           let Ψ := [prp.mvarId!] ∪ Ψ
           logInfo m!"id eInfo -> do: from: {t}, to: {u}, proof: {p}"
           return (Ψ, .success ⟨rel, t, u, p, eInfo.rewMVars⟩)
@@ -271,11 +272,14 @@ def eautoSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
 
 def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   let goal ← getMainGoal
-  logInfo goal
-  logInfo p
-  logInfo m!"{Ψ}"
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
+
+def subrelInference (p : Expr) (r : Expr) : MetaM Expr := do
+  let flipImpl ← mkAppM ``flip #[mkConst ``impl]
+  match ← inferType p with
+  | .app (.app (.app (.app (.app (.app (.const ``flip _) _) _) _) (.const ``impl _)) _) _ => pure p
+  | _ => mkAppOptM ``Subrel.subrelation #[none, r, flipImpl, ← mkFreshExprMVar <| ← mkAppM ``Subrel #[r, flipImpl], none, none, p]
 
 declare_syntax_cat rw
 syntax ("←")? ident: rw
@@ -300,28 +304,19 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     let goalType ← goal.getType
     let Ψ := []
     let ρ ← toHypInfo ldecl.toExpr
-    let flipImpl' ← mkAppM ``flip #[mkConst ``impl]
-    let impl' := mkConst ``impl
-    let (Ψ, res) ← rew Ψ goalType (← mkAppM ``flip #[mkConst ``impl]) l2r 0 ρ
+    logInfo "ρ: {ρ}"
+    let flipImpl ← mkAppM ``flip #[mkConst ``impl]
+    let (Ψ, res) ← rew Ψ goalType flipImpl l2r 0 ρ
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {ldecl.userName}."
     | .fail => logError "Rewrite failed to generate constraints."
     | .success ⟨r, t, u, p, subgoals⟩ =>
-    logInfo m!"{r}, {t}, {u}, {p}"
-    -- Final rw for goal is subrel flip impl (see: https://coq.zulipchat.com/#narrow/channel/237977-Coq-users/topic/.E2.9C.94.20Generalized.20rewriting.20-.20proof.20skeleton.20generation)
-    let finalGoal ← mkAppM ``Subrel #[flipImpl', flipImpl']
-    let m ← mkFreshExprMVar finalGoal
-    logInfo m!"{Ψ}"
-    --let p ← mkAppOptM ``Subrel.subrelation #[none, none, ← mkAppM ``flip #[mkConst ``impl], m, none, none, p]
-    --let Ψ := Ψ.insert m.mvarId!
-    -- It doesn't matter if Subrel or not. The final proof should be: (some goal with P) <- (some goal with Q)
-    --let p ← mkAppOptM' p #[none, none, ρ.prf]
-    --let p ← mkAppOptM' p #[] -- THIS must be the previous proof term (sub proof)
-    let p ← mkAppOptM ``Subrel.subrelation #[none, flipImpl', flipImpl', m, t, u, p]
+    logInfo m!"p: {p}, Ψ: {Ψ}"
     trace[Meta.Tactic.grewrite]"Starting Proof Search:"
     trace[Meta.Tactic.grewrite]"Solving {Ψ}"
     logInfo m!"Relation: {r} must be relation Prop"
     -- TODO: set subgoals
+    let p ← subrelInference p r
     nopSearch Ψ p
 
 elab "grewrite" "[" ps:rw,+ "]" : tactic =>
@@ -339,16 +334,15 @@ example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → P) := by
   grewrite [H]
   repeat sorry
 
-example (p : Proper (Iff ⟹ m1 ⟹ flip impl) And) (hs : Subrel (flip impl) (flip impl)) (rfl: m1 P P) : (P ↔ Q) → Q ∧ (Q → P) := by
+example (m2 : Proper (m1 ⟹ flip impl) (And Q)) (H: P ↔ Q) (m3 : Proper (Iff ⟹ m1) (impl Q)) (hs : Subrel (flip impl) (m1)) : (P ↔ Q) → Q ∧ (Q → P) := by
   intro h
-  have p := @Proper.proper (Prop → Prop → Prop) (Iff ⟹ m1 ⟹ flip impl) And p
-  have p := p _ _ h
-  have p := @Subrel.subrelation Prop (flip impl) (flip impl) hs (P ∧ (P → Q)) (Q ∧ (Q → Q)) (p _ _ sorry)
+  have p := @Proper.proper (Prop → Prop) (m1 ⟹ flip impl) (And Q) m2 (impl Q P) (impl Q Q) (@Proper.proper (Prop → Prop) (Iff ⟹ m1) (impl Q) m3 P Q H)
+  have s := @Subrel.subrelation _ (flip impl) m1 hs (Q ∧ impl Q P) (Q ∧ impl Q Q) p
   sorry
 
 /- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
-  ?m2 : Proper (?r ==> ?r0 ==> ?r) impl
+  ?m2 : Proper (Iff ==> ?r0 ==> ?r) impl
   ?m3 : ProperProxy ?r0 Q
   ?m1 : Proper (?r ==> flip impl) (And Q)
 -/
@@ -387,13 +381,13 @@ example (m2 : Proper (Iff ⟹ flip impl) <| impl Q) (hs : Subrel (flip impl) (fl
   apply ps
   sorry
 
-example (m1 : relation Prop) (m11 : Proper (Iff ⟹ m1 ⟹ flip impl) impl) (hm1 : ProperProxy m1 Q) (m2 : Proper (Iff ⟹ m1 ⟹ flip impl) <| impl) (hs : Subrel (flip impl) (flip impl)) : (P ↔ Q) → (P → Q) := by
+example (m1 : relation Prop) (m11 : Proper (Iff ⟹ m1 ⟹ flip impl) impl) (hm1 : ProperProxy m1 Q) (m2 : Proper (Iff ⟹ m1 ⟹ flip impl) <| impl) (hs : Subrel (m1) (flip impl)) : (P ↔ Q) → (P → Q) := by
   intro h
   -- That's the proper proof I already have
   have p := @Proper.proper (Prop → Prop → Prop) (Iff ⟹ m1 ⟹ flip impl) impl m11
   have p := p P Q h
   -- Do the relations have to be guessed?
-  have p : flip impl (P → Q) (Q → Q) := @Subrel.subrelation Prop (flip impl) (flip impl) hs (P → Q) (Q → Q) sorry
+  have p : flip impl (P → Q) (Q → Q) := @Subrel.subrelation Prop (m1) (flip impl) hs (P → Q) (Q → Q) sorry
   apply p
   sorry
 
