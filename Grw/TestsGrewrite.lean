@@ -9,53 +9,173 @@ set_option trace.Meta.Tactic.eauto.hints true
 set_option trace.Meta.Tactic.eauto.goals true
 set_option trace.Meta.Tactic.eauto.instances true
 
+/- Coq constraints: ✓
+Proper (Iff ==> flip impl) (impl Q)
+-/
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
   intro P Q h
-  --grewrite [h]
+  grewrite [h]
+  repeat sorry
 
+/- Coq constraints: ✓
+Proper (?r ==> ?r0 ==> flip impl) (And)
+Proper (Iff ==> ?r0) (impl Q)
+Proper (Iff ==> ?r) (impl Q)
+-/
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   intro P Q h
-  --grewrite [h]
+  grewrite [h]
+  repeat sorry
 
 -- ATOM
+/- Coq constraints: ✓
+Subrel r (flip impl)
+-/
 example {r : relation Prop} [hp : Proper (r ⟹ Iff) id] : r a b → b → a := by
   intro rab hb
   grewrite [rab]
-  exact hb
-  constructor
-  have hp' := hp.proper
-  rw [respectful] at hp'
-  exact hb
+  repeat sorry
 
 -- Simple app
+/- Coq constraints: ✓
+Proper (r ==> flip impl) P
+-/
 example {r : relation α} {P : α → Prop} [Proper (r ⟹ Iff) P] : r a a' → P a' → P a := by
   intros h finish
   grewrite [h]
-  exact finish
+  repeat sorry
 
 -- RW under respectful f
+/- Coq constraints: ✓
+Proper (r ==> ?r) f
+Proper (?r ==> flip impl) P
+-/
 example {f : α → α} [Proper (r ⟹ r) f] [Proper (r ⟹ Iff) P] : r a a' → P (f a') → P (f a) := by
   intro h finish
   grewrite [h]
-  exact finish
+  repeat sorry
 
 -- RW under lambda
+/- Coq constraints:
+Tactic failure: Nothing to rewrite.
+-/
 example {a : α} {P : (α → α) → Prop} [Proper (pointwiseRelation α r ⟹ Iff) P] : r a a' → P (λ _ => a') → P (λ _ => a) := by
   intro h finish
   grewrite [h]
-  exact finish
+  repeat sorry
 
 -- RW under Pi
+/- Coq constraints:
+Anomaly "Uncaught exception Not_found."
+Please report at http://coq.inria.fr/bugs/.
+-/
 example {r : relation α} {P : α → Prop} [Proper (r ⟹ Iff) P] : r a a' → ∀ a', P a' → P a := by
   intros h finish
   grewrite [h]
-  exact finish
+  repeat sorry
 
 -- Transitive RW in equiv
+/- Coq constraints: ✓
+Proper (r ==> ?r ==> flip impl) r
+ProperProxy ?r c
+-/
 example {r : α → α → Prop} [Equiv r] : r a b → r b c → r a c := by
   intro rab rbc
   grewrite [rab]
-  exact rbc
+  repeat sorry
+
+-- More Coq comparisons:
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> ?r) (impl Q)
+  ?m2 : Proper (?r ==> flip impl) (And Q)
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → P) := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
+
+example (m2 : Proper (m1 ⟹ flip impl) (And Q)) (H: P ↔ Q) (m3 : Proper (Iff ⟹ m1) (impl Q)) (hs : Subrel (flip impl) (m1)) : (P ↔ Q) → Q ∧ (Q → P) := by
+  intro h
+  have p := @Proper.proper (Prop → Prop) (m1 ⟹ flip impl) (And Q) m2 (impl Q P) (impl Q Q) (@Proper.proper (Prop → Prop) (Iff ⟹ m1) (impl Q) m3 P Q H)
+  have s := @Subrel.subrelation _ (flip impl) m1 hs (Q ∧ impl Q P) (Q ∧ impl Q Q) p
+  sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m2 : Proper (Iff ==> ?r0 ==> ?r) impl
+  ?m3 : ProperProxy ?r0 Q
+  ?m1 : Proper (?r ==> flip impl) (And Q)
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (P → Q) := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
+  ?m2 : ProperProxy ?r Q
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → P := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
+  ?m2 : ProperProxy ?r Q
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> flip impl) (impl Q)
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
+
+-- ✓ This is (seemingly) just different by moving the first applicant out the app into a proxy. Still sus.
+/-
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m2 : Proper (Iff ==> ?r ==> flip impl) And
+  ?m1 : Proper (Iff ==> ?r0 ==> ?r) impl
+  ?m2 : ProperProxy ?r0 Q
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (P → Q) := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (Iff ==> ?r) (impl Q)
+  ?m2 : Proper (Iff ==> ?r ==> flip impl) And
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (Q → P) := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
+
+/- ✓
+Produces: wrt. to subrelationProper and do_subrelation:
+  ?m1 : Proper (?r ==> ?r0 ==> flip impl) and
+  ?m2 : Proper (iff ==> ?r0) (impl Q)
+  ?r : Relation Prop
+  ?m3 : Proper (Iff => ?r) (impl Q)
+  ?r0 : Relation Prop
+-/
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
+  intros P Q H
+  grewrite [H]
+  repeat sorry
 
 -- Examples from Sébastien Michelland
 
@@ -69,72 +189,61 @@ variable [Proper_Pα: Proper (Rα ⟹ Iff) Pα]
 variable [PER Rα] [PER Rβ]
 
 -- Smallest example
--- Coq TC:
-#check Proper (r ⟹ flip impl) Pα
+/- Coq constraints ✓
+Proper (Rα ==> flip impl) Pα
+-/
 example (h: Rα a a') (finish: Pα a') : Pα a := by
   grewrite [h]
-  exact finish
+  repeat sorry
 
 -- Rewrite a PER within itself
+/- Coq constraints
+Proper (Rα ==> ?r ==> flip impl) Rα
+ProperProxy ?r x
+-/
 example (h: Rα a a') (finish: Rα a' x) : Rα a x := by
   grewrite [h]
-  exact finish
+  repeat sorry
+
+/- Coq constraints: ✓
+Proper (Rα ==> flip impl) (Rα x)
+-/
 example (h: Rα a a') (finish: Rα x a') : Rα x a := by
   grewrite [h]
-  exact finish
+  repeat sorry
 
 -- Nested function call
+/- Coq constraints:
+Proper (Rα ==> =r) fαβ
+Proper (?r ==> ?r0 ==> flip impl) Rαβ
+ProperProxy ?r0 x
+-/
 example (h: Rα a a') (finish: Rβ (fαβ a') x): Rβ (fαβ a) x := by
   grewrite [h]
-  exact finish
+  repeat sorry
 
 -- Multiple occurrences
 example (h: Rα a a') (finish: Rα a' a'): Rα a a := by
   grewrite [h]
-  exact finish
+  repeat sorry
 
 -- More complex selection
 example (h: Rα a a') (finish: Pα a'): Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a := by
   grewrite [h]
-  repeat (apply And.intro; assumption)
-  assumption
+  repeat sorry
 
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P ) := by
   intros P Q H
   grewrite [H]
-  . simp [impl]
-  . exact (flip impl)
-  . constructor
-    intros
-    assumption
-  . exact (flip impl) ⟹ Iff
-  . constructor
-    intros f g h
-    rw [respectful] at *
-    aesop
-    specialize h x x
-    rw [flip, impl] at *
-    aesop
-  . exact impl ⟹ flip impl ⟹ Iff
-  . exact Iff
-  . have inner := Subrel.subrelation impl impl (Proper.mk Q Q)
-    apply (Subrel.subrelation (impl Q) (impl Q) (Subrel.subrelation impl impl Proper.proper Q Q Proper.proper) P Q H)
-    sorry
-  . sorry
-  . sorry
+  repeat sorry
+
 --Proof: Subrel.subrelation (impl Q) (impl Q) (Subrel.subrelation impl impl Proper.proper Q Q Proper.proper) P Q H
 
 -- Examples from the Paper
-inductive ex {A : Sort u} (P : A → Prop) : Prop
-  | intro : ∀ x : A, P x → ex P
-
-example {A : Sort u} {P Q : A → Sort v} [Proper (pointwiseRelation A <| iff ⟹ iff) (@ex A)] : ∀A P Q, (∀ x : A, P x ↔ Q x) → (∃x:A, ¬Q x) → (∃x:A, ¬P x) := by
-  sorry
-
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P ) ∧ (Q → P ) := by
   intros P Q H
   grewrite [H]
-  simp
+  repeat sorry
 
 variable {SET : Type}
 variable {eqset : relation SET}
@@ -157,6 +266,7 @@ example : ∀ s, eqset (union (union s empty) s) s := by
   grewrite [unionEmpty]
   grewrite [unionIdem]
   apply Reflexive.rfl
+  repeat sorry
 
 end Examples
 
@@ -168,22 +278,9 @@ Some Coq constraints for problems:
 example : ∀ P Q : Prop, (P ↔ Q) → Q → P := by
   intros P Q H HQ
   grewrite [H]
-  exact HQ
+  repeat sorry
 
---Produces: Proper (r ⟹ flip impl) P
-example {r : relation α} {P : α → Prop} [Proper (r ⟹ Iff) P] : r a a' → P a' → P a := by
-  intros h finish
-  grewrite [h]
-  have magic : Proper (r ⟹ flip impl) P := by
-    eauto
-    sorry
-  apply magic.proper
-  . exact h
-  . exact finish
-  grewrite [h]
-  exact finish
-
-/-
+/- ✓
 Produces wrt. to subrelationProper and do_subrelation:
   ?m1 : Relation A
   ?m2 : Proper (r ==> ?m1) f
@@ -201,18 +298,18 @@ Produces: Nothing to rewrite.
 example {a : α} {P : (α → α) → Prop} [Proper (pointwiseRelation α r ⟹ Iff) P] : r a a' → P (λ _ => a') → P (λ _ => a) := by
   intro h finish
   grewrite [h]
-  exact finish
+  repeat sorry
 
-/-
+/- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
   ?m1 : Proper (Iff ==> flip impl) (impl Q)
 -/
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P):= by
   intros P Q H
   grewrite [H]
-  simp
+  repeat sorry
 
-/-
+/- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
   ?m0 : ProperProxy ?r Q
   ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
@@ -221,9 +318,9 @@ Produces: wrt. to subrelationProper and do_subrelation:
 example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
   intros P Q H
   grewrite [H]
-  simp
+  repeat sorry
 
-/-
+/- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
   ?m1 : Proper (?r ==> ?r0 ==> flip impl) impl
   ?m2 : Proper (iff ==> ?r0) (impl Q)
@@ -234,9 +331,9 @@ Produces: wrt. to subrelationProper and do_subrelation:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) → (Q → P) := by
   intros P Q H
   grewrite [H]
-  simp
+  repeat sorry
 
-/-
+/- ✓
 Produces: wrt. to subrelationProper and do_subrelation:
   ?m1 : Proper (?r ==> ?r0 ==> flip impl) and
   ?m2 : Proper (iff ==> ?r0) (impl Q)
@@ -247,7 +344,7 @@ Produces: wrt. to subrelationProper and do_subrelation:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
-  simp
+  repeat sorry
 
 /-
 Produces wrt. to subrelationProper and do_subrelation:
@@ -260,9 +357,10 @@ Produces wrt. to subrelationProper and do_subrelation:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → Q) := by
   intros P Q H
   grewrite [H]
-  simp
+  repeat sorry
+
 -- SUS!!! Depending on where the id is we have less constraints???
-/-
+/- ✓
 Produces wrt. to subrelationProper and do_subrelation:
   ?m1 : Proper (?r ==> flip impl) (And (Q -> Q))
   ?m2 : Proper (Iff ==> ?r) (impl Q)
@@ -271,4 +369,10 @@ Produces wrt. to subrelationProper and do_subrelation:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
-  simp
+  repeat sorry
+
+-- No rewrite possible on first two proofs.
+example (r₁ : relation Prop) (r₂ : relation Prop) (h₁ : r₁ P Q) (h₂ : r₂ P Q) (H : Prop) (h₃ : r₁ H P) : H := by
+  -- show error only on h₁ and h₂
+  grewrite [h₁, h₂, h₃]
+  sorry
