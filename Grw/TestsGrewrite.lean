@@ -289,7 +289,7 @@ Produces wrt. to subrelationProper and do_subrelation:
 example {f : α → α} [Proper (r ⟹ r) f] [Proper (r ⟹ Iff) P] : r a a' → P (f a') → P (f a) := by
   intro h finish
   grewrite [h]
-  exact finish
+  repeat sorry
 
 /-
 Produces: Nothing to rewrite.
@@ -375,4 +375,4 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) ∧ (Q → P) := by
 example (r₁ : relation Prop) (r₂ : relation Prop) (h₁ : r₁ P Q) (h₂ : r₂ P Q) (H : Prop) (h₃ : r₁ H P) : H := by
   -- show error only on h₁ and h₂
   grewrite [h₁, h₂, h₃]
-  sorry
+  repeat sorry

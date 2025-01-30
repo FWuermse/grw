@@ -118,7 +118,7 @@ private def getRelType (rel : Expr) : Expr :=
     rel
 
 def arrowCount (curr : Nat) : Expr → Nat
-  | .forallE n T b i => arrowCount (curr + 1) b
+  | .forallE _n _T b _i => arrowCount (curr + 1) b
   | _ => curr
 
 def respectfulN (mvars : List Expr) : MetaM  Expr :=
@@ -141,7 +141,7 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
   match t with
   | .app f e => do
     let Tf ← whnf <| ← inferType f
-    if let .some (τ, σ) := Tf.arrow? then
+    if let .some (_τ, σ) := Tf.arrow? then
       trace[Meta.Tactic.grewrite] "{srep depth} |APPSUB ({f}) ({e})"
       let (Ψ, fRes) ← rew Ψ f none l2r (depth+1) ρ
       let (Ψ, eRes) ← rew Ψ e none l2r (depth+1) ρ
@@ -151,7 +151,7 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
       | (.success fInfo, .success eInfo) =>
         -- Expensive case if both sides of the app can be rewritten (usually unfolded non binary apps).
         let r := f.getAppFn
-        -- the next four lines just determine the ==> ... ==> chain when we skipped id rws.
+        -- the next four lines determine the ==> ... ==> chain when we skipped id rws.
         let args := [fInfo.rewCar, eInfo.rewCar] ∪ desiredRel.toList
         let args := if args.length < arrowCount 1 (← inferType r) then [ρ.rel] ∪ args else args
         let respectful ← respectfulN args
@@ -208,15 +208,18 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
       | _ => return (Ψ, .fail)
     else
       atom Ψ t l2r
-  | .lam n T b i => do
+  | .lam n T _b i => do
     trace[Meta.Tactic.grewrite] "{srep depth} |LAM {t}"
-    lambdaTelescope t (fun _xs b => do
+    lambdaTelescope t fun _xs b => do
       let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← rew Ψ b none l2r (depth+1) ρ | return (Ψ, .id)
-      let .app (.app _ lhs) _ := S | throwError m!"{S} in {t} must be a relation."
-      let S ← mkAppM ``pointwiseRelation #[← inferType lhs, S]
+      let car ← match ← inferType S with
+      | .forallE _ T _ _ => pure T -- TODO: test this case
+      | .app _ car => pure car
+      | _ => throwError m!"{S} in {t} must be a relation."
+      let S ← mkAppM ``pointwiseRelation #[car, S]
       let p := .lam n T p i
       let u := .lam n T b i
-      pure (Ψ, .success ⟨S, t, u, p, subgoals⟩))
+      pure (Ψ, .success ⟨S, t, u, p, subgoals⟩)
   | .forallE n T b i => do
     if let .some (α, β) := t.arrow? then
       trace[Meta.Tactic.grewrite] "{srep depth} |Arrow {t}"
@@ -310,7 +313,7 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {ldecl.userName}."
     | .fail => logError "Rewrite failed to generate constraints."
-    | .success ⟨r, t, u, p, subgoals⟩ =>
+    | .success ⟨r, _t, u, p, _subgoals⟩ =>
     logInfo m!"p: {p}, Ψ: {Ψ}"
     trace[Meta.Tactic.grewrite]"Starting Proof Search:"
     trace[Meta.Tactic.grewrite]"Solving {Ψ}"
