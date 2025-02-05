@@ -48,9 +48,10 @@ def toHypInfo (term : Expr) : MetaM HypInfo := do
   | .app (.app r lhs) rhs => do
     pure ⟨term, ← inferType lhs, r, lhs.isSort, lhs, rhs, []⟩
   | .forallE _ _ (.app (.app _ _) _) _ => do
+    -- TODO: recursive approach. Current approach only works for one bvar in Pi
     let (exprs, _, .app (.app r lhs) rhs) ← forallMetaTelescope T | throwError "MetaTelescope broke structure of rw lemma"
-    let exprs := exprs.map fun e => e.mvarId!
-    pure ⟨term, ← inferType lhs, r, lhs.isSort, lhs, rhs, exprs.toList⟩
+    let subgoals := exprs.map fun e => e.mvarId!
+    pure ⟨← mkAppM' term exprs, ← inferType lhs, r, lhs.isSort, lhs, rhs, subgoals.toList⟩
   | _ => throwError "The given rewrite hypothesis {term} must be of the form ∀ Φs, R αs t u."
 
 /--
@@ -119,13 +120,38 @@ private def getRelType (rel : Expr) : Expr :=
 
 def arrowCount (curr : Nat) : Expr → Nat
   | .forallE _n _T b _i => arrowCount (curr + 1) b
+  | .app (.const ``relation _) _ => 2
   | _ => curr
+
+def appCount (curr : Nat) : Expr → Nat
+  | .app f _ => appCount curr f + 1 -- Don't decompose rhs further
+  | _ => curr + 1
+
+def arrowTypes (curr : List Expr) : Expr → List Expr
+  | .forallE _n T b _i => curr ++ [T] ++ (arrowTypes curr b)
+  | .app (.const ``relation _) T => [T, T, .sort 0]
+  | t => t::curr
+
+def getAtoms : Expr → List Expr
+  | .app f e => getAtoms f ++ [e]
+  | atom => [atom]
 
 def respectfulN (mvars : List Expr) : MetaM  Expr :=
   match mvars with
   | x :: [] => pure x
   | x :: xs => do mkAppM ``respectful #[x, ← respectfulN xs]
   | _ => throwError "Cannot create empty respectful chain."
+
+def respectfulFromArrow (fst : Expr) (types : List Expr) (lst : Expr) (fargs : List Expr) : MetaM (Expr × List Expr) := do
+  let types := types.zip <| fargs.rotate 1 -- We move the first applicant to args and types are aligned
+  logInfo m!"{types}"
+  let (_, types) := types.splitAt 1
+  let (types, _) := types.splitAt <| types.length - 1
+  let types ← types.mapM (fun (T, t) => do return (← mkFreshExprMVar <| ← mkAppM ``relation #[T], t))
+  let respectful ← respectfulN <| [fst] ++ types.unzip.fst ++ [lst]
+  let properProofs ← types.mapM (fun (mvarT, t) => do mkFreshExprMVar <| ← mkAppM ``ProperProxy #[mvarT, t])
+  let properProofs ← properProofs.mapM (do mkAppOptM ``ProperProxy.proxy #[none, none, none, .some .])
+  return (respectful, properProofs)
 
 /--
 `rew` always succeeds and returns a tuple (Ψ, R, τ', p) with the output constraints, a relation R, a new term τ' and a proof p : R τ τ'. In case no rewrite happens we can just have an application of ATOM.
@@ -150,17 +176,17 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
         pure (Ψ, .id)
       | (.success fInfo, .success eInfo) =>
         -- Expensive case if both sides of the app can be rewritten (usually unfolded non binary apps).
-        let r := f.getAppFn
+        let fn := f.getAppFn
         -- the next four lines determine the ==> ... ==> chain when we skipped id rws.
         let args := [fInfo.rewCar, eInfo.rewCar] ∪ desiredRel.toList
-        let args := if args.length < arrowCount 1 (← inferType r) then [ρ.rel] ∪ args else args
+        let args := if args.length < arrowCount 1 (← inferType fn) then [ρ.rel] ∪ args else args
         let respectful ← respectfulN args
-        let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, r]
-        let p ← mkAppOptM ``Proper.proper #[none, none, none, prp, none, none, fInfo.rewPrf, none, none, eInfo.rewPrf]
+        let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, fn]
+        let prf ← mkAppOptM ``Proper.proper #[none, none, none, prp, none, none, fInfo.rewPrf, none, none, eInfo.rewPrf]
         let u := .app fInfo.rewTo eInfo.rewTo
         let Ψ := [prp.mvarId!] ∪ Ψ
-        logInfo m!"-- from: {t}, to: {u}, proof: {p} --"
-        pure (Ψ, .success ⟨eInfo.rewCar, t, u, p, fInfo.rewMVars ∪ eInfo.rewMVars⟩)
+        logInfo m!"-- from: {t}, to: {u}, proof: {prf} --"
+        pure (Ψ, .success ⟨eInfo.rewCar, t, u, prf, fInfo.rewMVars ∪ eInfo.rewMVars⟩)
       | (.id, .success eInfo) =>
         -- When only the rhs succeeds with a rewrite we defer the generated constraints and avoid unneccessary nesting.
         -- TODO: something in this case is hardcoded/static that should be retreived from eInfo!
@@ -173,9 +199,7 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
         if arrowCount 0 (← inferType f) < 2 then
           let lhs := eInfo.rewCar
           let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[← mkAppM ``respectful #[lhs, rhs], f]
-          logInfo m!"prp: {prp}"
           let p ← mkAppOptM ``Proper.proper #[none, none, none, prp, none, none, eInfo.rewPrf]
-          logInfo m!"p: {p}"
           let Ψ := [prp.mvarId!] ∪ Ψ
           logInfo m!"id eInfo -> do: from: {t}, to: {u}, proof: {p}"
           return (Ψ, .success ⟨rel, t, u, p, eInfo.rewMVars⟩)
@@ -185,21 +209,21 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
           pure (Ψ, .success ⟨eInfo.rewCar, t, u, eInfo.rewPrf, eInfo.rewMVars⟩)
       | (.success fInfo, .id) => do
         -- When only the lhs succeeds we follow the same approach but use a proxy.
-        let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
-        let rhs ← match desiredRel with
-        | .some desired => pure desired
-        | .none => do pure rel
-        let lhs := ρ.rel
         let u := .app fInfo.rewTo e
-        if arrowCount 0 (← inferType e) < 2 then
-          let r := f.getAppFn
-          let mvar ← mkFreshExprMVar <| ← mkAppM ``relation #[← inferType e]
-          let respectful ← respectfulN [lhs, mvar, rhs]
-          let proxy ← mkFreshExprMVar <| ← mkAppM ``ProperProxy #[mvar, e]
-          let pp ← mkAppOptM ``ProperProxy.proxy #[none, none, none, proxy]
-          let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, r]
-          let p ← mkAppOptM ``Proper.proper #[none, none, none, prp, none, none, fInfo.rewPrf, none, none, pp]
-          let Ψ := [prp.mvarId!, proxy.mvarId!] ∪ Ψ
+        let fn := f.getAppFn
+        if arrowCount 0 (← inferType fn) == appCount 0 t - 1 then
+          -- We reached the top of an application and generate the efficient constraint Proper (==> ... ==>) f
+          let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[σ]
+          let arrowTypes := arrowTypes [] (← inferType fn)
+          let fargs := getAtoms t
+          -- The general case is (?m₁ ==> ... ==> ?mₙ) but the first and/or last can be inferred when known to optimize proof search
+          let rhs := if desiredRel.isSome then desiredRel.get! else rel
+          let lhs := if ρ.rel != arrowTypes.get! 0 then fInfo.rewCar else ρ.rel
+          let (respectful, pps) ← respectfulFromArrow lhs arrowTypes rhs fargs
+          let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, fn]
+          let pparr := pps.toArray.flatMap (#[none, none, .some .])
+          let p ← mkAppOptM ``Proper.proper <| #[none, none, none, prp, none, none, fInfo.rewPrf] ++ pparr
+          let Ψ := Ψ ∪ pps.map Expr.mvarId! ∪ [p.mvarId!]
           logInfo m!"fInfo id -> do: from: {t}, to: {u}, proof: {p}"
           return (Ψ, .success ⟨rel, t, u, p, fInfo.rewMVars⟩)
         else
@@ -282,7 +306,9 @@ def subrelInference (p : Expr) (r : Expr) : MetaM Expr := do
   let flipImpl ← mkAppM ``flip #[mkConst ``impl]
   match ← inferType p with
   | .app (.app (.app (.app (.app (.app (.const ``flip _) _) _) _) (.const ``impl _)) _) _ => pure p
-  | _ => mkAppOptM ``Subrel.subrelation #[none, r, flipImpl, ← mkFreshExprMVar <| ← mkAppM ``Subrel #[r, flipImpl], none, none, p]
+  | t => do
+    logInfo m!"Proof {p} is not a direct proof for flip impl and must be inferred"
+    mkAppOptM ``Subrel.subrelation #[none, r, flipImpl, ← mkFreshExprMVar <| ← mkAppM ``Subrel #[r, flipImpl], none, none, p]
 
 declare_syntax_cat rw
 syntax ("←")? ident: rw
@@ -307,7 +333,6 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     let goalType ← goal.getType
     let Ψ := []
     let ρ ← toHypInfo ldecl.toExpr
-    logInfo "ρ: {ρ}"
     let flipImpl ← mkAppM ``flip #[mkConst ``impl]
     let (Ψ, res) ← rew Ψ goalType flipImpl l2r 0 ρ
     match res with
@@ -317,7 +342,6 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     logInfo m!"p: {p}, Ψ: {Ψ}"
     trace[Meta.Tactic.grewrite]"Starting Proof Search:"
     trace[Meta.Tactic.grewrite]"Solving {Ψ}"
-    logInfo m!"Relation: {r} must be relation Prop"
     -- TODO: set subgoals
     let p ← subrelInference p r
     nopSearch Ψ p
@@ -326,3 +350,22 @@ elab "grewrite" "[" ps:rw,+ "]" : tactic =>
   algorithm ps
 
 end Tactic
+
+variable (α β γ: Type)
+variable (Rα: relation α) (Rβ: relation β) (Rγ: relation γ)
+variable (Pα: α → Prop) (Pβ: β → Prop) (Pγ: γ → Prop)
+variable (Pαβγ: α → β → Prop)
+variable (fαβ: α → β) (fβγ: β → γ)
+variable [Proper_fαβ: Proper (Rα ⟹ Rβ) fαβ]
+variable [Proper_Pα: Proper (Rα ⟹ Iff) Pα]
+variable [PER Rα] [PER Rβ]
+
+-- Multiple occurrences
+example (h: Rα a a') (finish: Rα a' a'): Rα a a := by
+  grewrite [h]
+  repeat sorry
+
+-- More complex selection
+example (h: Rα a a') (finish: Pα a'): Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a := by
+  grewrite [h]
+  repeat sorry

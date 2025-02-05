@@ -197,8 +197,9 @@ example (h: Rα a a') (finish: Pα a') : Pα a := by
   repeat sorry
 
 -- Rewrite a PER within itself
-/- Coq constraints
+/- Coq constraints ✓
 Proper (Rα ==> ?r ==> flip impl) Rα
+Proper (Rα ==> ?r) fαβ
 ProperProxy ?r x
 -/
 example (h: Rα a a') (finish: Rα a' x) : Rα a x := by
@@ -278,6 +279,22 @@ Some Coq constraints for problems:
 example : ∀ P Q : Prop, (P ↔ Q) → Q → P := by
   intros P Q H HQ
   grewrite [H]
+  repeat sorry
+
+/- Coq constraints ✓
+Proper (r ==> flip impl) (f c b)
+-/
+example (a b c : α) (r : relation α) (h: r a b) (f: α → α → α → Prop) : f c b a := by
+  grewrite [h]
+  repeat sorry
+
+/- Coq constraints ✓
+Proper (?r0 ==> ?r ==> flip impl) f
+ProperProxy ?r0 b
+ProperProxy ?r c
+-/
+example (r : relation α) (h : r a x) (f: α → β → γ → Prop) : f a b c := by
+  grewrite [h]
   repeat sorry
 
 /- ✓
@@ -374,5 +391,5 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) ∧ (Q → P) := by
 -- No rewrite possible on first two proofs.
 example (r₁ : relation Prop) (r₂ : relation Prop) (h₁ : r₁ P Q) (h₂ : r₂ P Q) (H : Prop) (h₃ : r₁ H P) : H := by
   -- show error only on h₁ and h₂
-  grewrite [h₁, h₂, h₃]
+  grewrite [h₁, ← h₂, h₃]
   repeat sorry
