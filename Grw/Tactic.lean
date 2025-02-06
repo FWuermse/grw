@@ -42,7 +42,7 @@ structure HypInfo where
   c2 : Expr -- Rhs of rel
   holes : List MVarId
 
-def toHypInfo (term : Expr) : MetaM HypInfo := do
+private def toHypInfo (term : Expr) : MetaM HypInfo := do
   let T ← inferType term
   match T with
   | .app (.app r lhs) rhs => do
@@ -69,7 +69,7 @@ abbrev RWM := ReaderT HypInfo MetaM <| List MVarId × RewriteResult
 private def srep : Nat → String
   | n => n.fold (fun _ s => s ++ "  ") ""
 
-def unify (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
+private def unify (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
   let ρ ← read
   let lhs := if l2r then ρ.c1 else ρ.c2
   let rhs := if l2r then ρ.c2 else ρ.c1
@@ -85,7 +85,7 @@ Note from paper:
 The variant unify∗ ρ(Γ, Ψ, τ ) tries unification on all subterms and succeeds if at least one
 unification does. The function unify(Γ, Ψ, t, u) does a standard unification of t and u.
 -/
-def unifyStar (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
+private def unifyStar (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
   let ρ ← read
   let lhs := if l2r then ρ.c1 else ρ.c2
   let rhs := if l2r then ρ.c2 else ρ.c1
@@ -98,7 +98,7 @@ def unifyStar (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
   else
     pure (Ψ, .id)
 
-def atom (Ψ : List MVarId) (t : Expr) (r2l : Bool) : RWM := do
+private def atom (Ψ : List MVarId) (t : Expr) (r2l : Bool) : RWM := do
   -- TODO probably a duplicate check.
   if let (Ψ, .success res) ← unifyStar Ψ t r2l then
     return (Ψ, .success res)
@@ -111,45 +111,11 @@ def atom (Ψ : List MVarId) (t : Expr) (r2l : Bool) : RWM := do
   let u := t
   return (Ψ ∪ [m.mvarId!], .success ⟨S, t, t, p, []⟩)
 
-private def getRelType (rel : Expr) : Expr :=
-  if let .app _ b := rel then
-    b
-  else
-    rel
-
-def arrowCount (curr : Nat) : Expr → Nat
-  | .forallE _n _T b _i => arrowCount (curr + 1) b
-  | .app (.const ``relation _) _ => 2
-  | _ => curr
-
-def appCount (curr : Nat) : Expr → Nat
-  | .app f _ => appCount curr f + 1 -- Don't decompose rhs further
-  | _ => curr + 1
-
-def arrowTypes (curr : List Expr) : Expr → List Expr
-  | .forallE _n T b _i => curr ++ [T] ++ (arrowTypes curr b)
-  | .app (.const ``relation _) T => [T, T, .sort 0]
-  | t => t::curr
-
-def getAtoms : Expr → List Expr
-  | .app f e => getAtoms f ++ [e]
-  | atom => [atom]
-
-def respectfulN (mvars : List Expr) : MetaM  Expr :=
+private def respectfulN (mvars : List Expr) : MetaM  Expr :=
   match mvars with
   | x :: [] => pure x
   | x :: xs => do mkAppM ``respectful #[x, ← respectfulN xs]
   | _ => throwError "Cannot create empty respectful chain."
-
-def respectfulFromArrow (fst : Expr) (types : List Expr) (lst : Expr) (fargs : List Expr) : MetaM (Expr × List Expr) := do
-  let types := types.zip <| fargs.rotate 1 -- We move the first applicant to args and types are aligned
-  let (_, types) := types.splitAt 1
-  let (types, _) := types.splitAt <| types.length - 1
-  let types ← types.mapM (fun (T, t) => do return (← mkFreshExprMVar <| ← mkAppM ``relation #[T], t))
-  let respectful ← respectfulN <| [fst] ++ types.unzip.fst ++ [lst]
-  let properProofs ← types.mapM (fun (mvarT, t) => do mkFreshExprMVar <| ← mkAppM ``ProperProxy #[mvarT, t])
-  let properProofs ← properProofs.mapM (do mkAppOptM ``ProperProxy.proxy #[none, none, none, .some .])
-  return (respectful, properProofs)
 
 /--
 `rew` always succeeds and returns a tuple (Ψ, R, τ', p) with the output constraints, a relation R, a new term τ' and a proof p : R τ τ'. In case no rewrite happens we can just have an application of ATOM.
@@ -171,28 +137,28 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
   Ψ collects the constraints (holes in the proof).
   respectfulList collects info about recursive rewrites on the app args.
   -/
-  | .app f e => do
+  | .app f _ => do
     let Tf ← whnf <| ← inferType f
-    if let .some (_τ, _σ) := Tf.arrow? then
+    if let .some (_, _) := Tf.arrow? then
       let mut fn := f.getAppFn
-      let atoms := getAtoms t |>.rotate 1
-      let types := arrowTypes [] (← inferType fn)
-      let (app, _) := atoms.zip types |>.splitAt <| atoms.length - 1
+      let appArgs ← t.getAppArgs.mapM fun t => do pure (t, ← inferType t)
       let mut prefixId := true
       let mut Ψ := Ψ
       let mut respectfulList := []
       let mut prfArgs := []
       let mut rewMVars := []
       let mut u := fn
-      for (t, T) in app do
+      for (t, T) in appArgs do
         let desiredRel ← mkFreshExprMVar <| ← mkAppM ``relation #[T]
         let (Ψ', res) ← rew Ψ t desiredRel l2r (depth+1) ρ
         if prefixId then
           if let .id := res then
-            fn := .app fn t -- If id happens at the beginning of an app we don't need to consider it
+            -- If id happens at the beginning of an app we don't need to consider it
+            fn := .app fn t
             u := .app u t
             continue
           else
+            -- As soon as we hit a success rw we need to include further ids in the overall proof
             prefixId := false
         let _ ← match res with
         | .id =>
@@ -215,7 +181,7 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
       let rel ← match desiredRel with
       | .some rel => pure rel
       -- TODO: is it ever none?
-      | .none => mkFreshExprMVar <| ← mkAppM ``relation #[app.getLast!.snd]
+      | .none => mkFreshExprMVar <| ← mkAppM ``relation #[appArgs.toList.getLast!.snd]
       respectfulList := respectfulList ++ [rel]
       let respectful ← respectfulN respectfulList
       let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, fn]
@@ -240,6 +206,7 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
     if let .some (α, β) := t.arrow? then
       trace[Meta.Tactic.grewrite] "{srep depth} |Arrow {t}"
       let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← rew Ψ (mkApp2 (mkConst ``impl) α β) desiredRel l2r (depth+1) | pure (Ψ, .id)
+      logInfo p
       let .app (.app _ α) β := b | throwError "Rewrite of `Impl α β` resulted in a different (thus wrong) type."
       let u ← mkArrow α β
       return (Ψ, .success ⟨S, t, u, p, subgoals⟩)
@@ -256,7 +223,6 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
       | .fail => return (Ψ , .fail)
   | _ => do
     trace[Meta.Tactic.grewrite] "{srep depth} |ATOM {t}"
-    --atom Ψ t l2r
     pure (Ψ, .id)
 
 def aesopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
@@ -298,7 +264,7 @@ def subrelInference (p : Expr) (r : Expr) : MetaM Expr := do
   let flipImpl ← mkAppM ``flip #[mkConst ``impl]
   match ← inferType p with
   | .app (.app (.app (.app (.app (.app (.const ``flip _) _) _) _) (.const ``impl _)) _) _ => pure p
-  | t => do
+  | _ => do
     mkAppOptM ``Subrel.subrelation #[none, r, flipImpl, ← mkFreshExprMVar <| ← mkAppM ``Subrel #[r, flipImpl], none, none, p]
 
 declare_syntax_cat rw
@@ -340,26 +306,3 @@ elab "grewrite" "[" ps:rw,+ "]" : tactic =>
   algorithm ps
 
 end Tactic
-
-variable (α β γ: Type)
-variable (Rα: relation α) (Rβ: relation β) (Rγ: relation γ)
-variable (Pα: α → Prop) (Pβ: β → Prop) (Pγ: γ → Prop)
-variable (Pαβγ: α → β → Prop)
-variable (fαβ: α → β) (fβγ: β → γ)
-variable [Proper_fαβ: Proper (Rα ⟹ Rβ) fαβ]
-variable [Proper_Pα: Proper (Rα ⟹ Iff) Pα]
-variable [PER Rα] [PER Rβ]
-
-/- Coq constraints
-Proper (Rα ==> ?r) fαβ
-Proper (?r ==> ?r0 ==> Basics.flip Basics.impl) Rβ
-ProperProxy ?r0 x
--/
-example (h: Rα a a') (finish: Rβ (fαβ a') x): Rβ (fαβ a) x := by
-  grewrite [h]
-  repeat sorry
-
--- More complex selection
-example (h: Rα a a') (finish: Pα a'): Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a := by
-  grewrite [h]
-  repeat sorry
