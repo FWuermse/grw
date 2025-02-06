@@ -64,15 +64,7 @@ example {a : α} {P : (α → α) → Prop} [Proper (pointwiseRelation α r ⟹ 
   grewrite [h]
   repeat sorry
 
--- RW under Pi
-/- Coq constraints:
-Anomaly "Uncaught exception Not_found."
-Please report at http://coq.inria.fr/bugs/.
--/
-example {r : relation α} {P : α → Prop} [Proper (r ⟹ Iff) P] : r a a' → ∀ a', P a' → P a := by
-  intros h finish
-  grewrite [h]
-  repeat sorry
+-- TODO: pi example
 
 -- Transitive RW in equiv
 /- Coq constraints: ✓
@@ -213,7 +205,7 @@ example (h: Rα a a') (finish: Rα x a') : Rα x a := by
   grewrite [h]
   repeat sorry
 
--- Nested function call
+-- Nested function call ✓
 /- Coq constraints:
 Proper (Rα ==> =r) fαβ
 Proper (?r ==> ?r0 ==> flip impl) Rαβ
@@ -223,17 +215,33 @@ example (h: Rα a a') (finish: Rβ (fαβ a') x): Rβ (fαβ a) x := by
   grewrite [h]
   repeat sorry
 
--- Multiple occurrences
+-- Multiple occurrences ✓
+/- Coq constraints:
+Proper (Rα ==> Rα ==> Basics.flip Basics.impl) Rα
+-/
 example (h: Rα a a') (finish: Rα a' a'): Rα a a := by
   grewrite [h]
   repeat sorry
 
--- More complex selection
+-- More complex selection ✓
+/- Coq constraints:
+Proper (Rα ==> ?r) Pα
+Proper (Rα ==> ?r0) Pα
+Proper (Rα ==> ?r1) Pα
+Proper (Rα ==> ?r2) Pα
+Proper (Rα ==> ?r3) Pα
+Proper (Rα ==> ?r4) Pα
+Proper (?r3 ==> ?r4 ==> ?r5) and
+Proper (?r2 ==> ?r5 ==> ?r6) and
+Proper (?r1 ==> ?r6 ==> ?r7) and
+Proper (?r0 ==> ?r7 ==> ?r8) and
+Proper (?r ==> ?r8 ==> Basics.flip Basics.impl) and
+-/
 example (h: Rα a a') (finish: Pα a'): Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a := by
   grewrite [h]
   repeat sorry
 
-example : ∀ P Q : Prop, (P ↔ Q) → (Q → P ) := by
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
   intros P Q H
   grewrite [H]
   repeat sorry
@@ -269,7 +277,6 @@ example : ∀ s, eqset (union (union s empty) s) s := by
   apply Reflexive.rfl
   repeat sorry
 
-end Examples
 
 /-
 Some Coq constraints for problems:
@@ -294,6 +301,24 @@ ProperProxy ?r0 b
 ProperProxy ?r c
 -/
 example (r : relation α) (h : r a x) (f: α → β → γ → Prop) : f a b c := by
+  grewrite [h]
+  repeat sorry
+
+/- Coq constraints
+Proper (r ==> ?r) g
+Proper (?r ==> r ==> Basics.flip Basics.impl) (f b b)
+-/
+example (r : relation α) (g : α → α) (h : r a x) (f: β → β → α → α → Prop) : f b b (g a) a := by
+  grewrite [h]
+  repeat sorry
+
+
+/- Coq instances ✓
+Proper (r ==> ?r) g
+Proper (r ==> ?r0 ==> ?r ==> r ==> Basics.flip Basics.impl) f
+ProperProxy ?r0 b
+-/
+example (r : relation α) (g : α → α) (h : r a x) (f: α → β → α → α → Prop) : f a b (g a) a := by
   grewrite [h]
   repeat sorry
 
@@ -376,7 +401,6 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → Q) := by
   grewrite [H]
   repeat sorry
 
--- SUS!!! Depending on where the id is we have less constraints???
 /- ✓
 Produces wrt. to subrelationProper and do_subrelation:
   ?m1 : Proper (?r ==> flip impl) (And (Q -> Q))
@@ -393,3 +417,5 @@ example (r₁ : relation Prop) (r₂ : relation Prop) (h₁ : r₁ P Q) (h₂ : 
   -- show error only on h₁ and h₂
   grewrite [h₁, ← h₂, h₃]
   repeat sorry
+
+end Examples
