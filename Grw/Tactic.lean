@@ -1,6 +1,7 @@
 import Lean.Elab.Tactic
 import Grw.Morphism
 import Grw.Eauto
+import Grw.PaperTactic
 import Batteries
 import Aesop
 
@@ -64,12 +65,12 @@ inductive RewriteResult where
   | id
   | success (r : RewriteResultInfo)
 
-abbrev RWM := ReaderT HypInfo MetaM <| List MVarId × RewriteResult
+abbrev RWM  := ReaderT HypInfo MetaM <| List MVarId × RewriteResult
 
 private def srep : Nat → String
   | n => n.fold (fun _ s => s ++ "  ") ""
 
-private def unify (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
+private def unify (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM  := do
   let ρ ← read
   let lhs := if l2r then ρ.c1 else ρ.c2
   let rhs := if l2r then ρ.c2 else ρ.c1
@@ -85,7 +86,7 @@ Note from paper:
 The variant unify∗ ρ(Γ, Ψ, τ ) tries unification on all subterms and succeeds if at least one
 unification does. The function unify(Γ, Ψ, t, u) does a standard unification of t and u.
 -/
-private def unifyStar (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
+private def unifyStar (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM  := do
   let ρ ← read
   let lhs := if l2r then ρ.c1 else ρ.c2
   let rhs := if l2r then ρ.c2 else ρ.c1
@@ -98,7 +99,7 @@ private def unifyStar (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
   else
     pure (Ψ, .id)
 
-private def atom (Ψ : List MVarId) (t : Expr) (r2l : Bool) : RWM := do
+private def atom (Ψ : List MVarId) (t : Expr) (r2l : Bool) : RWM  := do
   -- TODO probably a duplicate check.
   if let (Ψ, .success res) ← unifyStar Ψ t r2l then
     return (Ψ, .success res)
@@ -108,7 +109,6 @@ private def atom (Ψ : List MVarId) (t : Expr) (r2l : Bool) : RWM := do
   -- TODO confirm below line
   let p ← mkAppOptM ``Proper.proper #[none, none, none, m]
   -- paper says include S.mvardId! But those will implicitly reappear when setting new goals
-  let u := t
   return (Ψ ∪ [m.mvarId!], .success ⟨S, t, t, p, []⟩)
 
 private def respectfulN (mvars : List Expr) : MetaM  Expr :=
@@ -122,8 +122,8 @@ private def respectfulN (mvars : List Expr) : MetaM  Expr :=
 
 This output tuple represents the proof sekelton that is used in the proof search.
 -/
-partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : Bool) (depth : Nat) : RWM := do
-  withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"{srep <| depth}rew Ψ ({t}) ρ") do
+partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : Bool) (depth : Nat) : RWM  := do
+  withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"{srep <| depth}subterm Ψ ({t}) ρ") do
   let ρ ← read
   if let (Ψ', .success res) ← unify Ψ t l2r ρ then
     trace[Meta.Tactic.grewrite] "{srep depth} |UNIFY⇓ {res.rewFrom} ↝ {res.rewTo}"
@@ -150,7 +150,7 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
       let mut u := fn
       for (t, T) in appArgs do
         let desiredRel ← mkFreshExprMVar <| ← mkAppM ``relation #[T]
-        let (Ψ', res) ← rew Ψ t desiredRel l2r (depth+1) ρ
+        let (Ψ', res) ← subterm Ψ t desiredRel l2r (depth+1) ρ
         if prefixId then
           if let .id := res then
             -- If id happens at the beginning of an app we don't need to consider it
@@ -178,6 +178,8 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
           rewMVars := rew.rewMVars ++ rewMVars
           pure ()
         | .fail => return (Ψ, .fail)
+      if prefixId then
+        return (Ψ, .id)
       let rel ← match desiredRel with
       | .some rel => pure rel
       -- TODO: is it ever none?
@@ -187,13 +189,14 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
       let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, fn]
       let prfs := prfArgs.toArray.flatMap (#[none, none, .some .])
       let p ← mkAppOptM ``Proper.proper <| #[none, none, none, prp] ++ prfs
-      return (Ψ, .success ⟨respectfulList.getLast!, t, u, p, rewMVars⟩)
+      trace[Meta.Tactic.grewrite] "{srep depth} |APP {t}"
+      return (Ψ ∪ [prp.mvarId!], .success ⟨respectfulList.getLast!, t, u, p, rewMVars⟩)
     else
       atom Ψ t l2r
   | .lam n T _b i => do
     trace[Meta.Tactic.grewrite] "{srep depth} |LAM {t}"
     lambdaTelescope t fun _xs b => do
-      let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← rew Ψ b none l2r (depth+1) ρ | return (Ψ, .id)
+      let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← subterm Ψ b none l2r (depth+1) ρ | return (Ψ, .id)
       let car ← match ← inferType S with
       | .forallE _ T _ _ => pure T -- TODO: test this case
       | .app _ car => pure car
@@ -205,7 +208,7 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
   | .forallE n T b i => do
     if let .some (α, β) := t.arrow? then
       trace[Meta.Tactic.grewrite] "{srep depth} |Arrow {t}"
-      let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← rew Ψ (mkApp2 (mkConst ``impl) α β) desiredRel l2r (depth+1) | pure (Ψ, .id)
+      let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← subterm Ψ (mkApp2 (mkConst ``impl) α β) desiredRel l2r (depth+1) | pure (Ψ, .id)
       logInfo p
       let .app (.app _ α) β := b | throwError "Rewrite of `Impl α β` resulted in a different (thus wrong) type."
       let u ← mkArrow α β
@@ -216,7 +219,7 @@ partial def rew (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : 
       match res with
       | .success info => return (Ψ', .success info)
       | .id =>
-        let (Ψ, .success ⟨S, _, .app _ (.lam n T b i), p, subgoals⟩) ← rew Ψ (← mkAppM ``all #[T, .lam n T b i]) none l2r (depth+1)
+        let (Ψ, .success ⟨S, _, .app _ (.lam n T b i), p, subgoals⟩) ← subterm Ψ (← mkAppM ``all #[T, .lam n T b i]) none l2r (depth+1)
           | throwError "Rewrite of `all λ x ↦ y` resulted in a different (thus wrong) type."
         let u := .forallE n T b i
         pure (Ψ, .success ⟨S, t, u, p, subgoals⟩)
@@ -291,16 +294,17 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     let Ψ := []
     let ρ ← toHypInfo ldecl.toExpr
     let flipImpl ← mkAppM ``flip #[mkConst ``impl]
-    let (Ψ, res) ← rew Ψ goalType flipImpl l2r 0 ρ
+    let (Ψ, res) ← subterm Ψ goalType flipImpl l2r 0 ρ
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {ldecl.userName}."
     | .fail => logError "Rewrite failed to generate constraints."
-    | .success ⟨r, _t, u, p, _subgoals⟩ =>
-    trace[Meta.Tactic.grewrite]"Starting Proof Search:"
-    trace[Meta.Tactic.grewrite]"Solving {Ψ}"
+    | .success ⟨r, t, u, p, _subgoals⟩ =>
     -- TODO: set subgoals
     let p ← subrelInference p r
-    nopSearch Ψ p
+    trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: {← Ψ.mapM fun mv => mv.getType}\n"
+    let (Ψ, r, u, p) ← rew [] goalType 0 ldecl.toExpr
+    trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: {← Ψ.mapM fun mv => mv.getType}\n"
+    --nopSearch Ψ p
 
 elab "grewrite" "[" ps:rw,+ "]" : tactic =>
   algorithm ps

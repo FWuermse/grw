@@ -274,7 +274,7 @@ example : ∀ s, eqset (union (union s empty) s) s := by
   intro s
   grewrite [unionEmpty]
   grewrite [unionIdem]
-  apply Reflexive.rfl
+  --apply Reflexive.rfl
   repeat sorry
 
 

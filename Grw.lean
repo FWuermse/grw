@@ -2,8 +2,8 @@
 -- Import modules here that should be built as part of the library.
 import Grw.Morphism
 import Grw.Tactic
+import Grw.PaperTactic
 import Grw.Eauto
-import Grw.RocqRw
 
 import Grw.TestsEauto
 import Grw.TestsGrewrite
