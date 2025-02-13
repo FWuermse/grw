@@ -79,7 +79,7 @@ example {r : α → α → Prop} [Equiv r] : r a b → r b c → r a c := by
 -- More Coq comparisons:
 
 /- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m1 : Proper (Iff ==> ?r) (impl Q)
   ?m2 : Proper (?r ==> flip impl) (And Q)
 -/
@@ -95,7 +95,7 @@ example (m2 : Proper (m1 ⟹ flip impl) (And Q)) (H: P ↔ Q) (m3 : Proper (Iff 
   sorry
 
 /- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m2 : Proper (Iff ==> ?r0 ==> ?r) impl
   ?m3 : ProperProxy ?r0 Q
   ?m1 : Proper (?r ==> flip impl) (And Q)
@@ -106,7 +106,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (P → Q) := by
   repeat sorry
 
 /- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
   ?m2 : ProperProxy ?r Q
 -/
@@ -116,7 +116,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → P := by
   repeat sorry
 
 /- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
   ?m2 : ProperProxy ?r Q
 -/
@@ -126,7 +126,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
   repeat sorry
 
 /- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m1 : Proper (Iff ==> flip impl) (impl Q)
 -/
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
@@ -136,7 +136,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
 
 -- ✓ This is (seemingly) just different by moving the first applicant out the app into a proxy. Still sus.
 /-
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m2 : Proper (Iff ==> ?r ==> flip impl) And
   ?m1 : Proper (Iff ==> ?r0 ==> ?r) impl
   ?m2 : ProperProxy ?r0 Q
@@ -147,7 +147,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (P → Q) := by
   repeat sorry
 
 /- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m1 : Proper (Iff ==> ?r) (impl Q)
   ?m2 : Proper (Iff ==> ?r ==> flip impl) And
 -/
@@ -157,7 +157,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (Q → P) := by
   repeat sorry
 
 /- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m1 : Proper (?r ==> ?r0 ==> flip impl) and
   ?m2 : Proper (iff ==> ?r0) (impl Q)
   ?r : Relation Prop
@@ -190,8 +190,7 @@ example (h: Rα a a') (finish: Pα a') : Pα a := by
 
 -- Rewrite a PER within itself
 /- Coq constraints ✓
-Proper (Rα ==> ?r ==> flip impl) Rα
-Proper (Rα ==> ?r) fαβ
+Proper (Rα ==> ?r ==> Basics.flip Basics.impl) Rα
 ProperProxy ?r x
 -/
 example (h: Rα a a') (finish: Rα a' x) : Rα a x := by
@@ -304,6 +303,10 @@ example (r : relation α) (h : r a x) (f: α → β → γ → Prop) : f a b c :
   grewrite [h]
   repeat sorry
 
+example (r : relation α) (h : r a x) (f: α → β → γ → α → Prop) : f a b c a := by
+  grewrite [h]
+  repeat sorry
+
 /- Coq constraints
 Proper (r ==> ?r) g
 Proper (?r ==> r ==> Basics.flip Basics.impl) (f b b)
@@ -323,7 +326,7 @@ example (r : relation α) (g : α → α) (h : r a x) (f: α → β → α → �
   repeat sorry
 
 /- ✓
-Produces wrt. to subrelationProper and do_subrelation:
+Produces
   ?m1 : Relation A
   ?m2 : Proper (r ==> ?m1) f
   ?m3 : Proper (r ==> flip impl) P
@@ -343,7 +346,7 @@ example {a : α} {P : (α → α) → Prop} [Proper (pointwiseRelation α r ⟹ 
   repeat sorry
 
 /- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m1 : Proper (Iff ==> flip impl) (impl Q)
 -/
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P):= by
@@ -352,7 +355,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P):= by
   repeat sorry
 
 /- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m0 : ProperProxy ?r Q
   ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
   ?mr : relation Prop
@@ -363,7 +366,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
   repeat sorry
 
 /- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m1 : Proper (?r ==> ?r0 ==> flip impl) impl
   ?m2 : Proper (iff ==> ?r0) (impl Q)
   ?r : Relation Prop
@@ -376,7 +379,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) → (Q → P) := by
   repeat sorry
 
 /- ✓
-Produces: wrt. to subrelationProper and do_subrelation:
+Produces:
   ?m1 : Proper (?r ==> ?r0 ==> flip impl) and
   ?m2 : Proper (iff ==> ?r0) (impl Q)
   ?r : Relation Prop
@@ -389,7 +392,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   repeat sorry
 
 /-
-Produces wrt. to subrelationProper and do_subrelation:
+Produces
   ?m1 : ProperProxy ?r0 (Q -> Q)
   ?m2 : Proper (?r ==> ?r0 ==> flip impl) And
   ?m3 : Proper (Iff ==> ?r) (impl Q)
@@ -402,7 +405,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → Q) := by
   repeat sorry
 
 /- ✓
-Produces wrt. to subrelationProper and do_subrelation:
+Produces
   ?m1 : Proper (?r ==> flip impl) (And (Q -> Q))
   ?m2 : Proper (Iff ==> ?r) (impl Q)
   ?r : relation Prop
@@ -418,4 +421,21 @@ example (r₁ : relation Prop) (r₂ : relation Prop) (h₁ : r₁ P Q) (h₂ : 
   grewrite [h₁, ← h₂, h₃]
   repeat sorry
 
+-- Reverse rewrite with `←`
+/- Coq constraints:
+TBD
+-/
+example {r : α → α → Prop} [Equiv r] : r b a → r b c → r a c := by
+  intro rab rbc
+  grewrite [← rab]
+  repeat sorry
+
 end Examples
+
+example : Subrel r (Iff ⟹ rr) := by
+  constructor
+  rw [Subrelation]
+  intros x y hr
+  rw [respectful]
+  intros a b iff
+  sorry

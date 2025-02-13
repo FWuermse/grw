@@ -33,7 +33,7 @@ unification in t can contain more mvars which could get assigned:
 abbrev PRWM := ReaderT Expr MetaM
 
 private def srep : Nat → String
-  | n => n.fold (fun _ s => s ++ "  ") ""
+  | n => n.fold (fun _ _ s => s ++ "  ") ""
 
 private def unify (Ψ : List MVarId) (t : Expr) : PRWM <| List MVarId × Expr × Expr × Expr × Bool := do
   let ρ ← read

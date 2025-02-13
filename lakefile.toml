@@ -8,9 +8,9 @@ name = "Grw"
 [[require]]
 name = "batteries"
 git = "https://github.com/leanprover-community/batteries"
-rev = "main"
+rev = "v4.17.0-rc1"
 
 [[require]]
 name = "aesop"
 git = "https://github.com/leanprover-community/aesop"
-rev = "master"
+rev = "v4.17.0-rc1"

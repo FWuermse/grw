@@ -68,8 +68,9 @@ inductive RewriteResult where
 abbrev RWM  := ReaderT HypInfo MetaM <| List MVarId × RewriteResult
 
 private def srep : Nat → String
-  | n => n.fold (fun _ s => s ++ "  ") ""
+  | n => n.fold (fun _ _ s => s ++ "  ") ""
 
+-- TODO: don't bother tracking the subgoals not to be solved via TCR. Lean will do that automatically.
 private def unify (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM  := do
   let ρ ← read
   let lhs := if l2r then ρ.c1 else ρ.c2
@@ -86,7 +87,7 @@ Note from paper:
 The variant unify∗ ρ(Γ, Ψ, τ ) tries unification on all subterms and succeeds if at least one
 unification does. The function unify(Γ, Ψ, t, u) does a standard unification of t and u.
 -/
-private def unifyStar (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM  := do
+private def unifyStar (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
   let ρ ← read
   let lhs := if l2r then ρ.c1 else ρ.c2
   let rhs := if l2r then ρ.c2 else ρ.c1
@@ -166,7 +167,7 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
           let proxy ← mkFreshExprMVar <| ← mkAppM ``ProperProxy #[rel, t]
           let proxyPrf ← mkAppOptM ``ProperProxy.proxy #[none, none, none, proxy]
           respectfulList := respectfulList ++ [rel]
-          Ψ := Ψ ∪ [proxy.mvarId!]
+          Ψ := Ψ ∪ [proxy.mvarId!, rel.mvarId!]
           prfArgs := prfArgs ++ [proxyPrf]
           u := .app u t
           pure ()
@@ -209,7 +210,6 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
     if let .some (α, β) := t.arrow? then
       trace[Meta.Tactic.grewrite] "{srep depth} |Arrow {t}"
       let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← subterm Ψ (mkApp2 (mkConst ``impl) α β) desiredRel l2r (depth+1) | pure (Ψ, .id)
-      logInfo p
       let .app (.app _ α) β := b | throwError "Rewrite of `Impl α β` resulted in a different (thus wrong) type."
       let u ← mkArrow α β
       return (Ψ, .success ⟨S, t, u, p, subgoals⟩)
@@ -258,17 +258,59 @@ def eautoSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
 
+partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : HypInfo) : TacticM (List MVarId) := do
+  withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"search") do
+  for goal in goals do
+    let goalType ← goal.getType
+    trace[Meta.Tactic.grewrite]m!"trying goal: {goalType}"
+    let mut s ← saveState
+    try
+      goal.assumption
+      trace[Meta.Tactic.grewrite]m!"✅️ assumption solved goal {goalType}"
+    catch e =>
+      trace[Meta.Tactic.grewrite]m!"❌️ Assumption on {goalType} failed"
+    for matchingHint in ← hintDB.getMatch goalType do
+      trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches: {matchingHint}"
+      try
+        let subgoals ← goal.apply matchingHint
+        trace[Meta.Tactic.grewrite]m!"✅️ applied hint {matchingHint}"
+        let _ ← dfs (goals ++ subgoals) hintDB ρ
+        if (← getGoals).isEmpty then
+          return []
+      catch e =>
+        trace[Meta.Tactic.grewrite]m!"❌️ Could not apply hint"
+        continue
+    if !(← goal.isAssignedOrDelayedAssigned) then
+      s := { s with term.meta.core.infoState := (← Elab.MonadInfoTree.getInfoState), term.meta.core.messages := (← getThe Core.State).messages }
+      s.restore
+  return goals
+
+def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) : TacticM Unit := do
+  let hints := [``reflexiveProper, ``reflexiveProperProxy, ``reflexiveReflexiveProxy, ``Reflexive.rfl, ``properAndIff, ``eqProperProxy, ``Symmetric.symm, ``Transitive.trans, ``flipReflexive, ``implReflexive, ``implTransitive, ``subrelationRefl, ``iffImplSubrelation, ``iffInverseImplSubrelation, ``Proper.proper, ``ProperProxy.proxy]
+  let hints ← hints.mapM (do mkConstWithFreshMVarLevels .)
+  let mut hintDB : DiscrTree Expr := DiscrTree.empty
+  for hint in hints do
+    let type ← inferType hint
+    let (fvars, _, type) ← forallMetaTelescope type
+    hintDB ← hintDB.insert type hint
+  let _ ← dfs Ψ hintDB ρ
+  let goal ← getMainGoal
+  let subgoals ← goal.apply (← instantiateMVars prf)
+  replaceMainGoal subgoals
+
 def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   let goal ← getMainGoal
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
 
-def subrelInference (p : Expr) (r : Expr) : MetaM Expr := do
+def subrelInference (p : Expr) (r : Expr) : MetaM (Expr × List MVarId) := do
   let flipImpl ← mkAppM ``flip #[mkConst ``impl]
   match ← inferType p with
-  | .app (.app (.app (.app (.app (.app (.const ``flip _) _) _) _) (.const ``impl _)) _) _ => pure p
+  | .app (.app (.app (.app (.app (.app (.const ``flip _) _) _) _) (.const ``impl _)) _) _ => pure (p, [])
   | _ => do
-    mkAppOptM ``Subrel.subrelation #[none, r, flipImpl, ← mkFreshExprMVar <| ← mkAppM ``Subrel #[r, flipImpl], none, none, p]
+    let constraint ← mkFreshExprMVar <| ← mkAppM ``Subrel #[r, flipImpl]
+    let prf ← mkAppOptM ``Subrel.subrelation #[none, r, flipImpl, constraint, none, none, p]
+    pure (prf, [constraint.mvarId!])
 
 declare_syntax_cat rw
 syntax ("←")? ident: rw
@@ -300,13 +342,64 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     | .fail => logError "Rewrite failed to generate constraints."
     | .success ⟨r, t, u, p, _subgoals⟩ =>
     -- TODO: set subgoals
-    let p ← subrelInference p r
-    trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: {← Ψ.mapM fun mv => mv.getType}\n"
+    let (p, Ψ') ← subrelInference p r
+    let Ψ := Ψ' ++ Ψ
+    trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
+    -- Paper approach
+    /-
     let (Ψ, r, u, p) ← rew [] goalType 0 ldecl.toExpr
-    trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: {← Ψ.mapM fun mv => mv.getType}\n"
+    let finalGoal ← mkAppM ``Subrel #[r, ← mkAppM ``flip #[mkConst ``impl]]
+    let m ← mkFreshExprMVar finalGoal
+    let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
+    let Ψ := Ψ.insert m.mvarId!
+    trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
     --nopSearch Ψ p
+    -/
+    logInfo m!"{Ψ}"
+    search Ψ p ρ
 
 elab "grewrite" "[" ps:rw,+ "]" : tactic =>
   algorithm ps
 
 end Tactic
+
+macro "pphint1" : tactic =>
+  `(tactic| first
+    | apply eqProperProxy
+    | apply reflexiveProperProxy)
+
+macro "pphint2" : tactic =>
+  `(tactic| first
+    | apply hasAssignableMVar sorry
+    | apply properProperProxy)
+
+macro "solveRespectful" : tactic =>
+  `(tactic| all_goals
+    (rw [respectful]
+     intro _ _ H
+     simp_all
+     try rw [flip, impl]))
+
+macro "solveRespectfulN" : tactic =>
+  `(tactic| repeat solveRespectful)
+
+macro "solveProper" : tactic =>
+  `(tactic|
+    (apply Proper.mk
+     solveRespectfulN))
+
+set_option trace.Meta.Tactic.grewrite true
+set_option trace.Meta.isDefEq true
+
+example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
+  intros P Q H
+  grewrite [H]
+  . simp [impl, imp_self]
+  . exact Iff
+  . apply Reflexive.mk
+    intros
+    solveRespectfulN
+    simp
+  . constructor
+    intros
+    rfl
