@@ -167,17 +167,16 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
           let proxy ← mkFreshExprMVar <| ← mkAppM ``ProperProxy #[rel, t]
           let proxyPrf ← mkAppOptM ``ProperProxy.proxy #[none, none, none, proxy]
           respectfulList := respectfulList ++ [rel]
-          Ψ := Ψ ∪ [proxy.mvarId!, rel.mvarId!]
+          Ψ := Ψ ∪ [proxy.mvarId!]
           prfArgs := prfArgs ++ [proxyPrf]
           u := .app u t
-          pure ()
         | .success rew =>
+          logInfo m!"Proof arg {t}: {rew.rewPrf}"
           respectfulList := respectfulList ++ [rew.rewCar]
           Ψ := Ψ' ∪ Ψ
           prfArgs := prfArgs ++ [rew.rewPrf]
           u := .app u rew.rewTo
           rewMVars := rew.rewMVars ++ rewMVars
-          pure ()
         | .fail => return (Ψ, .fail)
       if prefixId then
         return (Ψ, .id)
@@ -190,6 +189,7 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
       let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, fn]
       let prfs := prfArgs.toArray.flatMap (#[none, none, .some .])
       let p ← mkAppOptM ``Proper.proper <| #[none, none, none, prp] ++ prfs
+      logInfo m!"Resulting proof: {p}"
       trace[Meta.Tactic.grewrite] "{srep depth} |APP {t}"
       return (Ψ ∪ [prp.mvarId!], .success ⟨respectfulList.getLast!, t, u, p, rewMVars⟩)
     else
@@ -258,6 +258,31 @@ def eautoSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
 
+macro "pphint1" : tactic =>
+  `(tactic| first
+    | apply eqProperProxy
+    | apply reflexiveProperProxy)
+
+macro "pphint2" : tactic =>
+  `(tactic| first
+    | apply hasAssignableMVar sorry
+    | apply properProperProxy)
+
+macro "solveRespectful" : tactic =>
+  `(tactic| all_goals
+    (rw [respectful]
+     intro _ _ H
+     simp_all
+     try rw [flip, impl]))
+
+macro "solveRespectfulN" : tactic =>
+  `(tactic| repeat solveRespectful)
+
+macro "solveProper" : tactic =>
+  `(tactic|
+    (apply Proper.mk
+     solveRespectfulN))
+
 partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : HypInfo) : TacticM (List MVarId) := do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"search") do
   for goal in goals do
@@ -269,24 +294,29 @@ partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : HypInfo) :
       trace[Meta.Tactic.grewrite]m!"✅️ assumption solved goal {goalType}"
     catch e =>
       trace[Meta.Tactic.grewrite]m!"❌️ Assumption on {goalType} failed"
-    for matchingHint in ← hintDB.getMatch goalType do
+    let matchingHints ← hintDB.getMatch goalType
+    for matchingHint in matchingHints do
       trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches: {matchingHint}"
       try
         let subgoals ← goal.apply matchingHint
         trace[Meta.Tactic.grewrite]m!"✅️ applied hint {matchingHint}"
-        let _ ← dfs (goals ++ subgoals) hintDB ρ
-        if (← getGoals).isEmpty then
-          return []
+        let newSubgoals ← dfs (goals.filter (. != goal) ++ subgoals) hintDB ρ
+        if newSubgoals.isEmpty then
+          trace[Meta.Tactic.grewrite]"🏁 no more open goals"
+          return newSubgoals
       catch e =>
         trace[Meta.Tactic.grewrite]m!"❌️ Could not apply hint"
         continue
+    --for tactic in [``tacticSolveRespectful, ``tacticSolveRespectfulN, ``tacticSolveProper, ``tacticPphint1] do
+    --  let t ← mkConstWithFreshMVarLevels tactic
+    --  let _ ← evalTactic (mkIdent tactic)
     if !(← goal.isAssignedOrDelayedAssigned) then
       s := { s with term.meta.core.infoState := (← Elab.MonadInfoTree.getInfoState), term.meta.core.messages := (← getThe Core.State).messages }
       s.restore
   return goals
 
 def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) : TacticM Unit := do
-  let hints := [``reflexiveProper, ``reflexiveProperProxy, ``reflexiveReflexiveProxy, ``Reflexive.rfl, ``properAndIff, ``eqProperProxy, ``Symmetric.symm, ``Transitive.trans, ``flipReflexive, ``implReflexive, ``implTransitive, ``subrelationRefl, ``iffImplSubrelation, ``iffInverseImplSubrelation, ``Proper.proper, ``ProperProxy.proxy]
+  let hints := [``reflexiveProper, ``reflexiveProperProxy, ``reflexiveReflexiveProxy, ``properAndIff, ``eqProperProxy, ``flipReflexive, ``implReflexive, ``implTransitive, ``subrelationRefl, ``iffImplSubrelation, ``iffInverseImplSubrelation]
   let hints ← hints.mapM (do mkConstWithFreshMVarLevels .)
   let mut hintDB : DiscrTree Expr := DiscrTree.empty
   for hint in hints do
@@ -341,65 +371,79 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     | .id => logWarningAt stx m!"Nothing to rewrite for {ldecl.userName}."
     | .fail => logError "Rewrite failed to generate constraints."
     | .success ⟨r, t, u, p, _subgoals⟩ =>
-    -- TODO: set subgoals
-    let (p, Ψ') ← subrelInference p r
-    let Ψ := Ψ' ++ Ψ
-    trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
+      -- TODO: set subgoals
+      let (p, Ψ') ← subrelInference p r
+      let Ψ := Ψ' ++ Ψ
+      trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
+
     -- Paper approach
-    /-
     let (Ψ, r, u, p) ← rew [] goalType 0 ldecl.toExpr
     let finalGoal ← mkAppM ``Subrel #[r, ← mkAppM ``flip #[mkConst ``impl]]
     let m ← mkFreshExprMVar finalGoal
     let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
     let Ψ := Ψ.insert m.mvarId!
-    trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
+    trace[Meta.Tactic.grewrite]"\n{goalType} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
     --nopSearch Ψ p
-    -/
-    logInfo m!"{Ψ}"
-    search Ψ p ρ
+    --search Ψ p ρ
 
 elab "grewrite" "[" ps:rw,+ "]" : tactic =>
   algorithm ps
 
 end Tactic
 
-macro "pphint1" : tactic =>
-  `(tactic| first
-    | apply eqProperProxy
-    | apply reflexiveProperProxy)
-
-macro "pphint2" : tactic =>
-  `(tactic| first
-    | apply hasAssignableMVar sorry
-    | apply properProperProxy)
-
-macro "solveRespectful" : tactic =>
-  `(tactic| all_goals
-    (rw [respectful]
-     intro _ _ H
-     simp_all
-     try rw [flip, impl]))
-
-macro "solveRespectfulN" : tactic =>
-  `(tactic| repeat solveRespectful)
-
-macro "solveProper" : tactic =>
-  `(tactic|
-    (apply Proper.mk
-     solveRespectfulN))
-
 set_option trace.Meta.Tactic.grewrite true
-set_option trace.Meta.isDefEq true
+--set_option trace.Meta.isDefEq true
 
-example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
-  intros P Q H
-  grewrite [H]
-  . simp [impl, imp_self]
-  . exact Iff
-  . apply Reflexive.mk
-    intros
-    solveRespectfulN
-    simp
-  . constructor
-    intros
-    rfl
+variable (α β γ: Type)
+variable (Rα: relation α) (Rβ: relation β) (Rγ: relation γ)
+variable (Pα: α → Prop) (Pβ: β → Prop) (Pγ: γ → Prop)
+variable (Pαβγ: α → β → Prop)
+variable (fαβ: α → β) (fβγ: β → γ)
+variable [Proper_fαβ: Proper (Rα ⟹ Rβ) fαβ]
+variable [Proper_Pα: Proper (Rα ⟹ Iff) Pα]
+variable [PER Rα] [PER Rβ]
+variable (Rαα: relation (Prop → Prop))
+
+/-
+Coq constraints:
+  ?r : relation Prop
+  ?s : subrelation Raa (pointwiseRelation Prop ?r)
+  ?s0 : subrelation ?r (flip impl)
+-/
+example (h: a = b) : a ∧ b := by
+  grewrite [h]
+  sorry
+
+/-
+Proof sketch:
+
+Generally compare proof types and show by proof irrelevance.
+
+structural induction:
+
+  Lam, Pi, Arrow by triv
+
+  App:
+    Case leading atoms:
+      induction on # leading atoms:
+      base case: leading atoms = 0:
+      case n+1 leading atoms:
+    Case no leading atoms:
+      induction on app args:
+      base case: args = 2; f a; f:σ→τ;:
+        case: .id, .rw a
+          assumption h: r a b
+          Proper.proper (r ⟹ ←) f ((?m: Proper (r ⟹ ←) f) a b h) : f a ← f b
+          =
+          @Subrel.subrelation Prop (?m1: relation Prop) (←) (?m2: Subrel ?m1 ←) (f a) (f b) (Subrel.subrelation Proper.proper a b h) : f a ← f b
+          by propext
+        case: rw, id
+        case: id, id
+        case: rw, rw
+      case n+1; f ... a b
+        case: b = id
+        case: b = rw
+    (Case leading f rw): May not be relevant
+    (Case all id): Maaaybe redundant
+  Atom?:
+-/

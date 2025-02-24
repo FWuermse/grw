@@ -84,7 +84,7 @@ class ProperProxy {α : Sort u} (r : relation α) (m : α) where
 
 @[grw]
 class ReflexiveProxy {α : Sort u} (r : relation α) where
-  reflexive_proxy : ∀ x, r x x
+  reflexiveProxy : ∀ x, r x x
 
 @[grw]
 theorem eqProperProxy (x : α) : ReflexiveProxy r → ProperProxy (@Eq α) x := fun _ => ⟨rfl⟩
@@ -93,7 +93,7 @@ theorem eqProperProxy (x : α) : ReflexiveProxy r → ProperProxy (@Eq α) x := 
 theorem properProperProxy x : Proper r x → ProperProxy r x := fun h => ⟨h.proper⟩
 
 @[grw]
-theorem reflexiveProperProxy {α : Sort u} {r : relation α} (x : α) : ReflexiveProxy r → ProperProxy r x := fun h => ⟨h.reflexive_proxy x⟩
+theorem reflexiveProperProxy {α : Sort u} {r : relation α} (x : α) : ReflexiveProxy r → ProperProxy r x := fun h => ⟨h.reflexiveProxy x⟩
 
 @[grw]
 theorem reflexiveReflexiveProxy {α : Sort u} {r : relation α} : Reflexive r → ReflexiveProxy r := fun h => ⟨h.rfl⟩
@@ -451,6 +451,35 @@ example {P Q : Prop} {r : relation Prop} [p : Proper (Iff ⟹ r) id] : (Q → P)
     replace p := p.proper
     rw [respectful] at p
     sorry
+  sorry
+
+example : Proper (@Eq Prop ⟹ Iff ⟹ flip impl) And := by
+  constructor
+
+  sorry
+
+
+example : (impl ⟹ flip impl) Not Not := by
+  rw [respectful]
+  apply contrapositive
+  sorry
+
+
+variable (x y : Prop)
+variable (x' y' : Prop)
+variable (h : x = y)
+variable (h' : Proper (Eq ⟹ Iff ⟹ flip impl) And)
+
+variable (h'' : ∀ x y, x = y → ∀ x' y', x' ↔ y' → flip impl (x ∧ y) (x' ∧ y'))
+
+#check @Proper.proper (Prop → Prop → Prop) (Eq ⟹ Iff ⟹ flip impl) And h' x y h x'
+
+example (a b : Prop) (h : a = b) : h' := by
+  constructor
+  rw [respectful]
+  intros a b h
+  rw [respectful]
+
   sorry
 
 /-
