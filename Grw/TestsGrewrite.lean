@@ -17,6 +17,11 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
   grewrite [h]
   repeat sorry
 
+example : ∀ P Q : Prop, (P ↔ Q) → P ∧ Q := by
+  intro P Q h
+  grewrite [h]
+  repeat sorry
+
 /- Coq constraints: ✓
 Proper (?r ==> ?r0 ==> flip impl) (And)
 Proper (Iff ==> ?r0) (impl Q)

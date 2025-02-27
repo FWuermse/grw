@@ -383,6 +383,7 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
     let Ψ := Ψ.insert m.mvarId!
     trace[Meta.Tactic.grewrite]"\n{goalType} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
+    aesopSearch Ψ p
     --nopSearch Ψ p
     --search Ψ p ρ
 
@@ -411,7 +412,7 @@ Coq constraints:
   ?s0 : subrelation ?r (flip impl)
 -/
 example (h: a = b) : a ∧ b := by
-  grewrite [h]
+  --grewrite [h]
   sorry
 
 /-

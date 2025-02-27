@@ -462,25 +462,20 @@ example : Proper (@Eq Prop ⟹ Iff ⟹ flip impl) And := by
 example : (impl ⟹ flip impl) Not Not := by
   rw [respectful]
   apply contrapositive
-  sorry
 
-
-variable (x y : Prop)
-variable (x' y' : Prop)
-variable (h : x = y)
-variable (h' : Proper (Eq ⟹ Iff ⟹ flip impl) And)
-
-variable (h'' : ∀ x y, x = y → ∀ x' y', x' ↔ y' → flip impl (x ∧ y) (x' ∧ y'))
-
-#check @Proper.proper (Prop → Prop → Prop) (Eq ⟹ Iff ⟹ flip impl) And h' x y h x'
-
-example (a b : Prop) (h : a = b) : h' := by
-  constructor
-  rw [respectful]
-  intros a b h
-  rw [respectful]
-
-  sorry
+variable (p q : Prop)
+variable (r : relation Prop)
+variable (h : r p q)
+variable (And_r : relation (relation Prop))
+variable (And_m : Proper And_r And)
+variable (And_T : relation (Prop → Prop))
+variable (And_p : Subrel And_r (r ⟹ And_T))
+#check @And_p.subrelation And And And_m.proper p q h
+variable (q_r : relation Prop)
+variable (q_m : Proper q_r q)
+variable (And_p_q_T : relation Prop)
+variable (And_p_q_p : Subrel And_T (q_r ⟹ And_p_q_T))
+#check @And_p_q_p.subrelation (And p) (And q) (@And_p.subrelation And And And_m.proper p q h) q q q_m.proper
 
 /-
 DiscrTree
