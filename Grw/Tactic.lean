@@ -167,7 +167,7 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
           let proxy ← mkFreshExprMVar <| ← mkAppM ``ProperProxy #[rel, t]
           let proxyPrf ← mkAppOptM ``ProperProxy.proxy #[none, none, none, proxy]
           respectfulList := respectfulList ++ [rel]
-          Ψ := Ψ ∪ [proxy.mvarId!]
+          Ψ := Ψ ∪ [proxy.mvarId!, rel.mvarId!]
           prfArgs := prfArgs ++ [proxyPrf]
           u := .app u t
         | .success rew =>
@@ -283,33 +283,109 @@ macro "solveProper" : tactic =>
     (apply Proper.mk
      solveRespectfulN))
 
+/--
+See (https://github.com/coq/coq/pull/13969)[Coq]
+-/
+private def inferRelation (goal : MVarId) (name : Name) : MetaM <| List MVarId := do
+  let type ← goal.getType
+  let .app (.const ``relation _) (.sort 0) := type | throwError "Cannot infer relation"
+  goal.apply <| ← mkConstWithFreshMVarLevels name
+
+private def solveRespectfulN (goal : MVarId) : MetaM MVarId := do
+  -- check if goal is isolated respectful chain
+  let type ← goal.getType
+  let isLam := (← whnf type.getAppFn).isLambda
+  let type ← inferType type.getAppFn
+  if let .app (.const ``relation _) arrow := type then
+    if (← whnf arrow).arrow?.isSome && isLam then
+      logInfo m!"solveRespectfulN: {type}"
+      let subgoal ← unfoldTarget goal ``respectful
+      let subgoal ← subgoal.intros
+      return subgoal.snd
+  throwError m!"{type} is not of type (τ₀ ⟹ ... ⟹ τₙ)"
+
+private def unfoldName (name : Name) (goal : MVarId) : MetaM MVarId := do
+  let type ← goal.getType
+  let hasFlip := type.find? (
+    match . with
+    | .const n _ => n == name
+    | _ => false)
+  if hasFlip.isSome then
+    return ← unfoldTarget goal name
+  throwError m!"No definition {name} occurs in term {type}"
+
+private def unfoldSymRflTran (goal : MVarId) : MetaM MVarId := do
+  for constructor in [``Reflexive.mk, ``Symmetric.mk, ``Transitive.mk] do
+    try
+      let unfoldRefl := mkConstWithFreshMVarLevels constructor
+      let subgoals ← commitIfNoEx do goal.apply (← unfoldRefl)
+      let subgoals ← subgoals.mapM MVarId.intros
+      -- TODO: does invariant subgoal.length == 1 hold?
+      return subgoals.get! 0 |>.snd
+    catch _ =>
+      continue
+  throwError "All constructors failed"
+
+abbrev NewGoalsM := MetaM <| List MVarId
+
+private def tryTactic (subgoals : List MVarId) (name : String) (tactic : MVarId → MetaM MVarId) : NewGoalsM := do
+  let mut subgoals := subgoals
+  for goal in subgoals do
+    try
+      let unfolded ← tactic goal
+      subgoals := subgoals.replace goal unfolded
+      trace[Meta.Tactic.grewrite]m!"✅️ applied tactic {name} on {← goal.getType}, now: {← unfolded.getType}"
+    catch _ =>
+      trace[Meta.Tactic.grewrite]m!"No progress with {name}: {← goal.getType}"
+  return subgoals
+
 partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : HypInfo) : TacticM (List MVarId) := do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"search") do
   for goal in goals do
+    let mut subgoals := []
     let goalType ← goal.getType
     trace[Meta.Tactic.grewrite]m!"trying goal: {goalType}"
     let mut s ← saveState
     try
       goal.assumption
       trace[Meta.Tactic.grewrite]m!"✅️ assumption solved goal {goalType}"
-    catch e =>
+    catch _ =>
       trace[Meta.Tactic.grewrite]m!"❌️ Assumption on {goalType} failed"
     let matchingHints ← hintDB.getMatch goalType
+    /-
+    TODO: store tactics based on what they could possibly simplify (e.G. Proper for solveProper)
+    Check mathlib for tactic registration. (see Lean.registerTagAttribute, persistantEnvExtension)
+    Env extension as discrtree (check simp attribute)
+    serialise Discrtree keys
+
+    Paper:
+    - Lean issue with Instance search
+    - Why do we need tactics aswell?
+    - mvars -> assigments behaviour etc.
+    - Introduction mention my contribution (Paper algo, coq algo, first description of coq algo, algos equiv?, impl in lean)
+    -/
     for matchingHint in matchingHints do
-      trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches: {matchingHint}"
+      trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {matchingHint}"
       try
-        let subgoals ← goal.apply matchingHint
+        subgoals ← goal.apply matchingHint
         trace[Meta.Tactic.grewrite]m!"✅️ applied hint {matchingHint}"
-        let newSubgoals ← dfs (goals.filter (. != goal) ++ subgoals) hintDB ρ
-        if newSubgoals.isEmpty then
+        subgoals ← dfs (goals.filter (. != goal) ++ subgoals) hintDB ρ
+        if subgoals.isEmpty then
           trace[Meta.Tactic.grewrite]"🏁 no more open goals"
-          return newSubgoals
+          return subgoals
       catch e =>
         trace[Meta.Tactic.grewrite]m!"❌️ Could not apply hint"
         continue
-    --for tactic in [``tacticSolveRespectful, ``tacticSolveRespectfulN, ``tacticSolveProper, ``tacticPphint1] do
-    --  let t ← mkConstWithFreshMVarLevels tactic
-    --  let _ ← evalTactic (mkIdent tactic)
+    -- tactics:
+    subgoals ← tryTactic subgoals "unfoldSRT" (unfoldSymRflTran)
+    subgoals ← tryTactic subgoals "⟹...⟹" (solveRespectfulN)
+    subgoals ← tryTactic subgoals "unfold flip" (unfoldName ``flip)
+    subgoals ← tryTactic subgoals "unfold impl" (unfoldName ``impl)
+    let sc ← Simp.Context.mkDefault
+    subgoals ← tryTactic subgoals "simp_all" fun g => do
+      match ← simpAll g sc with
+      | (.some r, _) => pure r
+      | (_, _) => throwError "simp_all made no progress"
     if !(← goal.isAssignedOrDelayedAssigned) then
       s := { s with term.meta.core.infoState := (← Elab.MonadInfoTree.getInfoState), term.meta.core.messages := (← getThe Core.State).messages }
       s.restore
@@ -375,7 +451,8 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
       let (p, Ψ') ← subrelInference p r
       let Ψ := Ψ' ++ Ψ
       trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
-
+      search Ψ p ρ
+    /-
     -- Paper approach
     let (Ψ, r, u, p) ← rew [] goalType 0 ldecl.toExpr
     let finalGoal ← mkAppM ``Subrel #[r, ← mkAppM ``flip #[mkConst ``impl]]
@@ -386,6 +463,7 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     aesopSearch Ψ p
     --nopSearch Ψ p
     --search Ψ p ρ
+    -/
 
 elab "grewrite" "[" ps:rw,+ "]" : tactic =>
   algorithm ps
@@ -411,9 +489,12 @@ Coq constraints:
   ?s : subrelation Raa (pointwiseRelation Prop ?r)
   ?s0 : subrelation ?r (flip impl)
 -/
-example (h: a = b) : a ∧ b := by
-  --grewrite [h]
-  sorry
+example (h: a = b) (finish : b ∧ b) : a ∧ b := by
+  grewrite [h]
+  . exact finish
+  . exact Eq
+  . simp_all
+  . rfl
 
 /-
 Proof sketch:
@@ -426,6 +507,8 @@ structural induction:
 
   App:
     Case leading atoms:
+      Combine with other induction.
+
       induction on # leading atoms:
       base case: leading atoms = 0:
       case n+1 leading atoms:
@@ -447,4 +530,7 @@ structural induction:
     (Case leading f rw): May not be relevant
     (Case all id): Maaaybe redundant
   Atom?:
+
+
+Soundness über Inferenzregeln (neue regel kann über alte regeln gezeigt (inferiert) werden)
 -/
