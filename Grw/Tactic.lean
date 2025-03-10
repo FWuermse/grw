@@ -451,8 +451,8 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
       let (p, Ψ') ← subrelInference p r
       let Ψ := Ψ' ++ Ψ
       trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
-      search Ψ p ρ
-    /-
+      --search Ψ p ρ
+
     -- Paper approach
     let (Ψ, r, u, p) ← rew [] goalType 0 ldecl.toExpr
     let finalGoal ← mkAppM ``Subrel #[r, ← mkAppM ``flip #[mkConst ``impl]]
@@ -463,7 +463,6 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     aesopSearch Ψ p
     --nopSearch Ψ p
     --search Ψ p ρ
-    -/
 
 elab "grewrite" "[" ps:rw,+ "]" : tactic =>
   algorithm ps
@@ -496,6 +495,21 @@ example (h: a = b) (finish : b ∧ b) : a ∧ b := by
   . simp_all
   . rfl
 
+variable (f : α → α → α → Prop)
+variable (g : α → α → α → Prop)
+variable (r : relation <| α → α → α → Prop)
+example (h : r f g) : f a b c ∧ f a b c:= by
+  have rewrite : flip impl (f a b c ∧ f a b c) (g a b c ∧ g a b c) := by
+    have hintr : relation Prop := sorry
+    have hintr0 : relation Prop := sorry
+    have hints : Subrel r (pointwiseRelation α (pointwiseRelation α (pointwiseRelation α hintr))) := sorry
+    have hints0 : Subrel r (pointwiseRelation α (pointwiseRelation α (pointwiseRelation α hintr0))) := sorry
+    have hintp : Proper (hintr ⟹ hintr0 ⟹ flip impl) And := sorry
+    have proofpiece := hints.subrelation h a b c
+    have proof := @hintp.proper (f a b c) (g a b c) (hints.subrelation h a b c) (f a b c) (g a b c) (hints0.subrelation h a b c)
+    exact proof
+  sorry
+
 /-
 Proof sketch:
 
@@ -514,7 +528,7 @@ structural induction:
       case n+1 leading atoms:
     Case no leading atoms:
       induction on app args:
-      base case: args = 2; f a; f:σ→τ;:
+      base case: args = 2; f a b; f:σ→τ;:
         case: .id, .rw a
           assumption h: r a b
           Proper.proper (r ⟹ ←) f ((?m: Proper (r ⟹ ←) f) a b h) : f a ← f b
