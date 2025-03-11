@@ -135,6 +135,8 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
   If the first arguments are all id we can optimize the proof by leaving this part of an app composed e.g.:
   Proper (prf arg₃ ==> ... ==> prf argₙ) (f arg₁ arg₂)
 
+  In case we want to rewrite f directly we have to use a different approach. In that case we chain all arguments in a pointwise_relation and conclude with a final subrelation. Note the invariant that a rewrite on f implies that ρ cannot be applied to any of f's arguments directly but possibly its subterms.
+
   Ψ collects the constraints (holes in the proof).
   respectfulList collects info about recursive rewrites on the app args.
   -/
@@ -149,6 +151,15 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
       let mut prfArgs := []
       let mut rewMVars := []
       let mut u := fn
+      -- If ρ matches f of an application f a b then ρ cannot match any other aplicant directly
+      let lhs := if l2r then ρ.c1 else ρ.c2
+      if lhs == fn then
+        logInfo "fold pointwise"
+        let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[← inferType t]
+        let prf ← appArgs.foldrM (fun (_, T) acc => mkAppM ``pointwiseRelation #[T, acc]) rel
+        let sub ← mkFreshExprMVar <| ← mkAppM ``Subrel #[ρ.rel, prf]
+        let subPrf ← mkAppOptM ``Subrel.subrelation <| #[none, none, none, sub, none, none, ρ.prf] ++ appArgs.map fun (t, _) => .some t
+        return (Ψ ++ [rel.mvarId!], .success ⟨rel, t, mkAppN ρ.car <| appArgs.map Prod.fst, subPrf, []⟩)
       for (t, T) in appArgs do
         let desiredRel ← mkFreshExprMVar <| ← mkAppM ``relation #[T]
         let (Ψ', res) ← subterm Ψ t desiredRel l2r (depth+1) ρ
@@ -404,12 +415,16 @@ def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) : TacticM Unit := do
   let subgoals ← goal.apply (← instantiateMVars prf)
   replaceMainGoal subgoals
 
-def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
+private def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   let goal ← getMainGoal
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
 
-def subrelInference (p : Expr) (r : Expr) : MetaM (Expr × List MVarId) := do
+/--
+We use this inference function whenever we failed passing the expected relation (←) or (→).
+This can happend if the algorithm immediately unifies and returns for instance.
+-/
+private def subrelInference (p : Expr) (r : Expr) : MetaM (Expr × List MVarId) := do
   let flipImpl ← mkAppM ``flip #[mkConst ``impl]
   match ← inferType p with
   | .app (.app (.app (.app (.app (.app (.const ``flip _) _) _) _) (.const ``impl _)) _) _ => pure (p, [])
@@ -494,6 +509,24 @@ example (h: a = b) (finish : b ∧ b) : a ∧ b := by
   . exact Eq
   . simp_all
   . rfl
+
+variable (f : α → β → γ → Prop)
+example (h: f = g) : f a b c ∧ f a b c := by
+  grewrite [h]
+
+variable (f : α → α → α → Prop)
+variable (g : α → α → α → Prop)
+variable (r : relation <| α → α → α → Prop)
+example (h : r f g) : f a b c ∧ f a b c:= by
+  have rewrite : flip impl (f a b c ∧ f a b c) (g a b c ∧ g a b c) := by
+    have hintr : relation Prop := sorry
+    have hintr0 : relation Prop := sorry
+    have hints : Subrel r (pointwiseRelation α (pointwiseRelation α (pointwiseRelation α hintr))) := sorry
+    have hints0 : Subrel r (pointwiseRelation α (pointwiseRelation α (pointwiseRelation α hintr0))) := sorry
+    have hintp : Proper (hintr ⟹ hintr0 ⟹ flip impl) And := sorry
+    have proof := @hintp.proper (f a b c) (g a b c) (@Subrel.subrelation _ _ _ hints _ _ h a b c) (f a b c) (g a b c) (hints0.subrelation h a b c)
+    exact proof
+  sorry
 
 /-
 Proof sketch:
