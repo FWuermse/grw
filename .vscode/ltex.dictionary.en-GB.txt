@@ -1,0 +1,2 @@
+subterm
+subrelation

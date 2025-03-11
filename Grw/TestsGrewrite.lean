@@ -120,6 +120,11 @@ example : ∀ P Q : Prop, (P ↔ Q) → P := by
   grewrite [H]
   repeat sorry
 
+variable (P Q : Prop)
+variable (H : P <-> Q)
+variable (mv : Subrel Iff (flip impl))
+#check @Subrel.subrelation Prop Iff (flip impl) mv P-- Q H
+
 /- ✓
 Produces:
   ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
