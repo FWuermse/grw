@@ -1,6 +1,6 @@
 // This theme is inspired by https://github.com/matze/mtheme
 // The polylux-port was performed by https://github.com/Enivex
-#import "@preview/polylux:0.3.1": *
+#import "@preview/polylux:0.4.0": *
 
 #let g-primary = rgb("#00883A") // pinkg
 
@@ -117,5 +117,3 @@
   set text(fill: g-background, size: 1.5em)
   logic.polylux-slide(align(horizon + center, body))
 }
-
-#let lmu-outline = utils.polylux-outline(enum-args: (tight: false,))
