@@ -214,7 +214,9 @@ In our examples we saw that even rewrites where most terms do not contain the le
 
 The algorithm described so far generates mata variables for relations whenever we don't know which relation we're supposed generate a proof for. We then return those relations recursively and build subrelations to infer the desired relation (eventually ($<-$)). We consider this a bottom-up approach where those metavariables originate from the leafs of such a term tree and are passed upwards. This creates a lot of subrelation constraints that were not necessary in the first place. We can avoid this by passing an additional parameter to recursive calls (top-down) that contains the desired relation for a proof. We do this by initially providing ($<-$) as the desired relation and pass it along in the lambda, pi, and arrow case. In recursive call as part of the application case we generate a metavariable for a relation of the type of the applicant we rewrite for and pass it to both recursive calls. This invalidates the need for subrelations in the application rule and at the top of the term.
 
-Let us consider a simple rewrite of an application $f space e$ where $e$ can be rewritten. 
+Let us consider a simple rewrite of an application $f space e$ where $e$ can be rewritten. With the original algorithm we would create a metavariable for the identity proof of $f$ and the carrier relation $?_r_f$ for $f$. When combining the two we would create another relation metavariable $?_r_(f e)$. The `Rew` algorithm returns a proof over $?_r_(f e)$ and we have to wrap another subrelation constraint $?_s$ around it to obtain the final rewrite. We can eliminate the last subrelation constraint $?_s$ and the need for $?_r_(f e)$ by passing the desired output relation (e.g. $<-$) to the algorithm. We can then directly place the given relation in the spot where $?_r_(f e)$ was.
+
+For this optimisation to work however we still have to create metavariables whenever the desired relation changes. This happens when we break the term $t$ further down. For instance when recursively rewriting a function argument its type is different than the type of the whole application. In that case we create a metavariable of the given type and pass it down. There are some edge cases where we cannot leverage the provided relation and have to fallback on at most one final subrelation inference. For instance this can happen when the input term directly unifies and returns without creating any constraints.
 
 == Applications as Sequence
 
@@ -222,21 +224,48 @@ When introducing the `Proper` and `respectful` definitions we gave an example fo
 
 == Leading Identity Rewrites
 
-We mentioned 
+We mentioned that considering the entire sequence provides more context for optimisations. One of them is not to include function arguments $e_i space dots e_j$ with $i,j in NN and 0 <= i <= j <= |e_0 space dots space e_n|$ inside a proper chain if the function and every argument before $e_i$ is an identity rewrite. This reduces the complexity and size of a respectful chain and thus makes it easier to solve the resulting constraints. This also helps reducing the amount of metavariables that we have to guess.
 
-+ id/success status
-+ Pass expected relation to avoid subrelation
-+ Eval app for all args
-+ Ignore prefix id rewrites for app
-+ ProperProxy
+For instance when considering a rewrite of a function application $f space e_0 space e_1 space e_2$ with $f : alpha_0 -> alpha_1 -> alpha_2 -> mono("Prop")$ where only $e_2$ can be successfully rewritten using $rho : r space e_2 space u$ we would produce the proper sequence $mono("Proper") (r_e_0 ==> r_e_1 ==> r_e_2 ==> (<-)) f$. This includes the two relations $r_e_0$ and $r_e_1$. Technically we know that those relations can be guessed as arbitrary reflexive relations because $e_0$ and $e_1$ are rewritten to their identity $e_0$ and $e_1$.
+
+We can simplify such terms by currying the two identity arguments to the function and shrink the respectful chain to $mono("Proper") (r_e_2 ==> (<-)) space (f space e_0 space e_1)$ to obtain the same proof. $mono("Proper") (r_e_0 ==> r_e_1 ==> r_e_2 ==> (<-))$ has the type $(alpha_0 -> alpha_1 -> alpha_2 -> mono("Prop")) -> mono("Prop")$ and therefore produces the desired proof when applied to $f$. When we reduce the term to $mono("Proper") (r_e_2 ==> (<-))$ the type changes to $(alpha_2 -> mono("Prop")) -> mono("Prop")$ and the application $f space e_0 space e_1$ has the desired type $alpha_2 -> mono("Prop")$.
+
+In this example we are left with only one relation that has to be guessed, notably also the crucial one for this rewrite to succeed. With this improvement we take away valuable time of the proof search guessing irrelevant relations and provide only the necessary ones.
+
+This only works for left-to-right identity rewrites due to the left-associativity of function application and the nature of function currying (TODO: ref).
+
+== ProperProxy
+
+This last improvement does not directly enhance the generated proofs but affects the proof search for identity rewrites. We mentioned that leading identity rewrites can only be optimized left-to-right and only if there is a consistant sequence of identity subterms. For functions where only the first and last parameter is a rewrite we would not be able to apply that system. However, we can see that those proofs are trivial because the requirement for identity rewrites is only that we find some relation $r_"id"$ that is reflexive and a proof that the given element is proper. We could tag such elements and use that tag during the proof search to find a respective proof more easily.
+
+The Coq implementation takes a different approach that we adopted to our Lean implication. We create a second typeclass called `ProperProxy` which is defined identically to the `Proper` definition. The only difference is that we implement different theorems that transforms the `ProperProxy` into a `Reflexive` element. Those theorems are selected first for all `ProperProxy` metavariables and helps solve the easy constraints. Only if that fails we transition it to `Proper` instances and proceed with the usual theorems that we would use to solve arbitrary `Proper` constraints.
+
+While this does not change the type of our proves it avoids unnessesary backtracking for subterms that do not need to be rewritten but also cannot be optimised by the currying technique we saw for leading identity rewrites.
 
 == Updated Algorithm <updatedalgo>
 
+We have seen five improvements to the `Rew` algorithm for constraint and proof generation of a rewrite. We will now propose an updated algorithm that combines all mentioned optimisations. This roughly ressembles the algorithm that has evolved in the Coq core library over the last decade by combining the algorithms for leibniz-equality rewriting, rewriting under binders, generalised rewriting, and the `setoid_rewrite` module.
+
+We call the algorithm in @subterm `Subterm` as a reference to the original name of the generalised rewriting implementation in Coq and to differenciate between the previously seen `Rew` algorithm referred to in the paper by Matthieu @sozeau:inria-00628904.
+
+The `Subterm` algorithm has an additional argument $r$ that refers to the relation that is now passed down from the top rather than being inferred at the end. Similarly to `Rew` we first check whether the input term $t$ unifies directly and return in that case. Otherwise we follow a similar pattern matching.
+
+We first match for function application but consider a sequence now. In practice we can differenciate nested applications and application sequences by the paranthesis. We treat the following Lean term $(((f space e_1) space  e_2) space (g space e_3))$ as an application sequence $(f) space (e_1) space (e_2) space (g space e_3)$ and only follow a recursive application call for $g space e_3$.
+
+Under the assumption that we only obtain well-formed applications we know that the function type $f$ must be unique among the application. When $f$ has the type $alpha -> beta -> gamma$ for instance we can only apply an argument of type $alpha$ or a sequence mathing the function type. Therefore $f$ cannot occur again directly in the same sequence but only in nested applications. This implies that when $f$ directly unifies with a left hand side of a rewrite relation $rho$ we can assume that no other argument unifies. This is not the case when f occurs again nested in one or multiple arguments. In such a case we can rewrite again using the updated term $u$, infer $r$ early for $p$ combine the proofs using transitivity of $r$ which is either $<-$ or $->$.
+
+If the rewrite does not occur in the rewrite function of the topmost application sequence we enter the default case where we create the mentioned a respectful chain for the entire sequence of the arguments. We define the `prefixIsId` and `fn` variables in lines 14 and 15 to track leading identity rewrites. In each loop iteration we update this variable until we reach an argument that can be rewritten. Up until that point we curry the arguments to `fn`. Whenever we have leading identity rewrites we also start building the updated term $u$ defined in line 15 by applying the arguments unchanged. If `prefixIsId` remains `true` we just return `identity`. 
+
+Once we start iterating over non-identity arguments we collect the recursive proofs and carrier relation types retrieved in line 17 in the `proofs` and `types` variables of type list defined in line 13. Whenever we reach recursive identity rewrites after successfully rewriting at least one argument we create `ProperProxy` metavariables as mentioned in the last section. We explicitly extend the constraint set $Psi$ by the relation and proof metavariables of the identity rewrites. In the case of successful rewrites we already obtained the updated constraint set $Psi'$ which contains $r'$ and $p$ at this point.
+
+Finally all collected types and proofs can be used to create a `Proper` metavariable $mono("Proper") ("types"_0 ==> dots ==> "types"_n ==> r) "fn"$. Note that $"proofs"_0$ does not neccessarily refer to the first rewrite and fn does not neccessarily refer to the $e_0$ in case there were identity rewrites. In this algorithm we also use the simplified notation of metavariable application in which we refer to the only constructor `Proper.proper`.
+ 
 TODO explaination
 
 TODO special cases where we still need subrelation
 
-#algo(
+#figure(
+algo(
   row-gutter: 5pt,
   keywords: ("if", "else", "then", "match", "return", "with", "type", "for", "in", "do", "foldr"),
   title: $"Subterm"_rho$,
@@ -295,7 +324,7 @@ $|$ $sigma -> tau$ $=>$#i\
   return ($Psi'$, $r$, $sigma' -> tau'$, $p$)#d\
 $|$ t' $=>$#i\
   return ($Psi$, identity)
-] <algo>
+], caption: [Improved Algorithm for Genralised Rewriting.]) <subterm>
 
 == Equality of the Generated Proofs
 
