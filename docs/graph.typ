@@ -1,8 +1,9 @@
 #import "@preview/diagraph:0.3.2": *
 
 #let exgraph = (size) => raw-render(
-  ```dot
+```dot
 digraph G {
+    node [fontname = "Arial"];
     node [shape=plaintext];
     
     FinalS [label=<
@@ -60,7 +61,7 @@ digraph G {
         <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
             <TR>
                 <TD WIDTH="40" HEIGHT="30">p → q</TD>
-                <TD WIDTH="90">
+                <TD WIDTH="180">
                     <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
                         <TR><TD HEIGHT="15">?r10</TD></TR>
                         <TR><TD HEIGHT="15">s5 ≜ ?s5 (p →) (q →) s3 q q ?p5</TD></TR>
@@ -257,5 +258,5 @@ digraph G {
     B -> Final
     Final -> FinalS
 }
-```, width: size
+```, width: size, engine: "dot"
 )
