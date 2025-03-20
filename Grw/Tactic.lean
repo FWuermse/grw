@@ -119,6 +119,19 @@ private def respectfulN (mvars : List Expr) : MetaM  Expr :=
   | _ => throwError "Cannot create empty respectful chain."
 
 /--
+We use this inference function whenever we failed passing the expected relation (←) or (→).
+This can happend if the algorithm immediately unifies and returns for instance.
+-/
+private def subrelInference (p : Expr) (r : Expr) : MetaM (Expr × Expr × List MVarId) := do
+  let flipImpl ← mkAppM ``flip #[mkConst ``impl]
+  match ← inferType p with
+  | .app (.app (.app (.app (.app (.app (.const ``flip _) _) _) _) (.const ``impl _)) _) _ => pure (p, flipImpl, [])
+  | _ => do
+    let constraint ← mkFreshExprMVar <| ← mkAppM ``Subrel #[r, flipImpl]
+    let prf ← mkAppOptM ``Subrel.subrelation #[none, r, flipImpl, constraint, none, none, p]
+    pure (prf, flipImpl, [constraint.mvarId!])
+
+/--
 `rew` always succeeds and returns a tuple (Ψ, R, τ', p) with the output constraints, a relation R, a new term τ' and a proof p : R τ τ'. In case no rewrite happens we can just have an application of ATOM.
 
 This output tuple represents the proof sekelton that is used in the proof search.
@@ -152,14 +165,23 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
       let mut rewMVars := []
       let mut u := fn
       -- If ρ matches f of an application f a b then ρ cannot match any other aplicant directly
-      let lhs := if l2r then ρ.c1 else ρ.c2
-      if lhs == fn then
-        logInfo "fold pointwise"
+      if let (Ψ', .success res) ← unify Ψ fn l2r ρ then
         let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[← inferType t]
         let prf ← appArgs.foldrM (fun (_, T) acc => mkAppM ``pointwiseRelation #[T, acc]) rel
-        let sub ← mkFreshExprMVar <| ← mkAppM ``Subrel #[ρ.rel, prf]
-        let subPrf ← mkAppOptM ``Subrel.subrelation <| #[none, none, none, sub, none, none, ρ.prf] ++ appArgs.map fun (t, _) => .some t
-        return (Ψ ++ [rel.mvarId!], .success ⟨rel, t, mkAppN ρ.car <| appArgs.map Prod.fst, subPrf, []⟩)
+        let sub ← mkFreshExprMVar <| ← mkAppM ``Subrel #[res.rewCar, prf]
+        let p ← mkAppOptM ``Subrel.subrelation <| #[none, none, none, sub, none, none, res.rewPrf] ++ appArgs.map fun (t, _) => .some t
+        u := mkAppN res.rewTo <| appArgs.map Prod.fst
+        let (Ψ'', snd) ← subterm Ψ u desiredRel l2r (depth + 1)
+        if let .success res := snd then do
+          let (p₁, rel, Ψ₁) ← subrelInference p rel
+          let (p₂, _, Ψ₂) ← subrelInference res.rewPrf res.rewCar
+          -- Invariant: all desired rels are Prop and transitive and res is of desired rel
+          let tr ← mkFreshExprMVar <| ← mkAppOptM ``Transitive #[none, rel]
+          logInfo m!"t: {t}, u: {u}, u': {res.rewTo}"
+          let p ← mkAppOptM ``Transitive.trans #[none, none, tr, t, u, res.rewTo, p₁, p₂]
+          return (Ψ ++ Ψ'' ++ Ψ₁ ++ Ψ₂ ++ [tr.mvarId!], .success ⟨rel, t, res.rewTo, p, []⟩)
+        logInfo m!"{t} ⤳ {u}; p: {p}; car: {rel}"
+        return (Ψ ++ [rel.mvarId!], .success ⟨rel, t, u, p, []⟩)
       for (t, T) in appArgs do
         let desiredRel ← mkFreshExprMVar <| ← mkAppM ``relation #[T]
         let (Ψ', res) ← subterm Ψ t desiredRel l2r (depth+1) ρ
@@ -369,11 +391,7 @@ partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : HypInfo) :
     Env extension as discrtree (check simp attribute)
     serialise Discrtree keys
 
-    Paper:
-    - Lean issue with Instance search
-    - Why do we need tactics aswell?
-    - mvars -> assigments behaviour etc.
-    - Introduction mention my contribution (Paper algo, coq algo, first description of coq algo, algos equiv?, impl in lean)
+
     -/
     for matchingHint in matchingHints do
       trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {matchingHint}"
@@ -420,19 +438,6 @@ private def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
 
-/--
-We use this inference function whenever we failed passing the expected relation (←) or (→).
-This can happend if the algorithm immediately unifies and returns for instance.
--/
-private def subrelInference (p : Expr) (r : Expr) : MetaM (Expr × List MVarId) := do
-  let flipImpl ← mkAppM ``flip #[mkConst ``impl]
-  match ← inferType p with
-  | .app (.app (.app (.app (.app (.app (.const ``flip _) _) _) _) (.const ``impl _)) _) _ => pure (p, [])
-  | _ => do
-    let constraint ← mkFreshExprMVar <| ← mkAppM ``Subrel #[r, flipImpl]
-    let prf ← mkAppOptM ``Subrel.subrelation #[none, r, flipImpl, constraint, none, none, p]
-    pure (prf, [constraint.mvarId!])
-
 declare_syntax_cat rw
 syntax ("←")? ident: rw
 
@@ -463,7 +468,7 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     | .fail => logError "Rewrite failed to generate constraints."
     | .success ⟨r, t, u, p, _subgoals⟩ =>
       -- TODO: set subgoals
-      let (p, Ψ') ← subrelInference p r
+      let (p, r, Ψ') ← subrelInference p r
       let Ψ := Ψ' ++ Ψ
       trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
       search Ψ p ρ
@@ -510,59 +515,7 @@ example (h: a = b) (finish : b ∧ b) : a ∧ b := by
   . simp_all
   . rfl
 
-variable (f : α → β → γ → Prop)
-example (h: f = g) : f a b c ∧ f a b c := by
+
+variable (f : α → Prop → γ → Prop)
+example (h: f = g) : f a (f a (f a (f a True c) c) c) c := by
   grewrite [h]
-
-variable (f : α → α → α → Prop)
-variable (g : α → α → α → Prop)
-variable (r : relation <| α → α → α → Prop)
-example (h : r f g) : f a b c ∧ f a b c:= by
-  have rewrite : flip impl (f a b c ∧ f a b c) (g a b c ∧ g a b c) := by
-    have hintr : relation Prop := sorry
-    have hintr0 : relation Prop := sorry
-    have hints : Subrel r (pointwiseRelation α (pointwiseRelation α (pointwiseRelation α hintr))) := sorry
-    have hints0 : Subrel r (pointwiseRelation α (pointwiseRelation α (pointwiseRelation α hintr0))) := sorry
-    have hintp : Proper (hintr ⟹ hintr0 ⟹ flip impl) And := sorry
-    have proof := @hintp.proper (f a b c) (g a b c) (@Subrel.subrelation _ _ _ hints _ _ h a b c) (f a b c) (g a b c) (hints0.subrelation h a b c)
-    exact proof
-  sorry
-
-/-
-Proof sketch:
-
-Generally compare proof types and show by proof irrelevance.
-
-structural induction:
-
-  Lam, Pi, Arrow by triv
-
-  App:
-    Case leading atoms:
-      Combine with other induction.
-
-      induction on # leading atoms:
-      base case: leading atoms = 0:
-      case n+1 leading atoms:
-    Case no leading atoms:
-      induction on app args:
-      base case: args = 2; f a; f:σ→τ;:
-        case: .id, .rw a
-          assumption h: r a b
-          Proper.proper (r ⟹ ←) f ((?m: Proper (r ⟹ ←) f) a b h) : f a ← f b
-          =
-          @Subrel.subrelation Prop (?m1: relation Prop) (←) (?m2: Subrel ?m1 ←) (f a) (f b) (Subrel.subrelation Proper.proper a b h) : f a ← f b
-          by propext
-        case: rw, id
-        case: id, id
-        case: rw, rw
-      case n+1; f ... a b
-        case: b = id
-        case: b = rw
-    (Case leading f rw): May not be relevant
-    (Case all id): Maaaybe redundant
-  Atom?:
-
-
-Soundness über Inferenzregeln (neue regel kann über alte regeln gezeigt (inferiert) werden)
--/
