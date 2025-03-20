@@ -14,3 +14,92 @@
   HAL_ID = {inria-00628904},
   HAL_VERSION = {v1},
 }
+
+@manual{coqmorphism,
+  title        = "Library Coq.Classes.Morphisms",
+  author       = "Matthieu Sozeau",
+  organization = "LRI, CNRS UMR 8623 - University Paris Sud",
+  address      = "https://rocq-prover.org/doc/v8.20/stdlib/Coq.Classes.Morphisms.html",
+  edition      = "20",
+  month        = "September",
+  year         = "2024",
+}
+
+@misc{casteran:hal-00702455,
+  TITLE = {{A gentle introduction to type classes and relations in Coq}},
+  AUTHOR = {Cast{\'e}ran, Pierre and Sozeau, Matthieu},
+  URL = {https://hal.science/hal-00702455},
+  NOTE = {This document presents the main features of type classes and user-defined relations in the Coq proof assistant. Available at http://www.labri.fr/perso/casteran/CoqArt/TypeClassesTut/typeclassestut.pdf},
+  YEAR = {2012},
+  MONTH = May,
+  HAL_ID = {hal-00702455},
+  HAL_VERSION = {v1},
+}
+
+@misc{selsam2020tabledtypeclassresolution,
+      title={Tabled Typeclass Resolution}, 
+      author={Daniel Selsam and Sebastian Ullrich and Leonardo de Moura},
+      year={2020},
+      eprint={2001.04301},
+      archivePrefix={arXiv},
+      primaryClass={cs.PL},
+      url={https://arxiv.org/abs/2001.04301}, 
+}
+
+@inproceedings{aesop,
+author = {Limperg, Jannis and From, Asta Halkj\ae{}r},
+title = {Aesop: White-Box Best-First Proof Search for Lean},
+year = {2023},
+isbn = {9798400700262},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3573105.3575671},
+doi = {10.1145/3573105.3575671},
+abstract = {We present Aesop, a proof search tactic for the Lean 4 interactive  
+theorem prover. Aesop performs a tree-based search over a user-specified  
+set of proof rules. It supports safe and unsafe rules and uses a best-first  
+search strategy with customisable prioritisation. Aesop also allows users  
+to register custom normalisation rules and integrates Lean's simplifier to  
+support equational reasoning. Many details of Aesop's search procedure are  
+designed to make it a white-box proof automation tactic, meaning that users  
+should be able to easily predict how their rules will be applied, and thus how  
+powerful and fast their Aesop invocations will be.  
+
+Since we use a best-first search strategy, it is not obvious how to handle  
+metavariables which appear in multiple goals. The most common strategy for  
+dealing with metavariables relies on backtracking and is therefore not  
+suitable for best-first search. We give an algorithm which addresses this  
+issue. The algorithm works with any search strategy, is independent of the  
+underlying logic and makes few assumptions about how rules interact with  
+metavariables. We conjecture that with a fair search strategy, the algorithm  
+is as complete as the given set of rules allows.},
+booktitle = {Proceedings of the 12th ACM SIGPLAN International Conference on Certified Programs and Proofs},
+pages = {253–266},
+numpages = {14},
+keywords = {type theory, tactic, proof search, interactive theorem proving, deductive verification, Lean},
+location = {Boston, MA, USA},
+series = {CPP 2023}
+}
+
+@article{discrtree,
+author = {McCune, William},
+title = {Experiments with discrimination-tree indexing and path indexing for term retrieval},
+year = {1992},
+issue_date = {Oct. 1992},
+publisher = {Springer-Verlag},
+address = {Berlin, Heidelberg},
+volume = {9},
+number = {2},
+issn = {0168-7433},
+url = {https://doi.org/10.1007/BF00245458},
+doi = {10.1007/BF00245458},
+journal = {J. Autom. Reason.},
+month = oct,
+pages = {147–167},
+numpages = {21},
+keywords = {path indexing, indexing, discrimination net, automated deduction, FPA indexing}
+}
+
+  
+
+
