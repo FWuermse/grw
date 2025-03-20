@@ -24,7 +24,9 @@
 #counter(page).update(1)
 
 = Introduction <Introduction>
-
+TODO: Lean issue with Instance search
+TODO: Why do we need tactics aswell?
+TODO: Introduction mention my contribution (Paper algo, coq algo, first description of coq algo, algos equiv?, impl in lean)
 TODO: Sturcture: Algorithm has two parts, constraint gen is our focus, why is it bad?, how can we optimize it?, is it still the same?, how do metavariables change?...
 TODO: mention why we even need rewrite proofs (we're extending Lean and not changing it's core theory and defeq stuff.)
 TODO: mention l2r and flip impl vs impl rewrites.

@@ -134,6 +134,7 @@ partial def rew (Ψ : List MVarId) (t : Expr) (depth : Nat) : PRWM (List MVarId 
       trace[Meta.Tactic.grewrite] "{srep depth} |APPSUB ({f}) ({e})"
       let (Ψ, F, f', pf) ← rew Ψ f (depth+1) ρ
       let (Ψ, E, e', pe) ← rew Ψ e (depth+1) ρ
+      logInfo m!"previous proofs Rew: {(F, f', pf)}, {(E, e', pe)}"
       /-
       preconditions:
         - t is an application f e
@@ -148,6 +149,7 @@ partial def rew (Ψ : List MVarId) (t : Expr) (depth : Nat) : PRWM (List MVarId 
       -- TODO is Subrel.subrelation correct here? -> Yes seems like the paper means Subrel.subrelation implicitly as it's the only constructor.
       let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, sub, f, f', pf, e, e', pe]
       -- paper says include S.mvardId! But it seems counterintuitive to guess the relation aswell
+      logInfo m!"Rew: {Ψ}, {rel}, u: {Expr.app f' e'}, p: {p}"
       pure (Ψ ∪ [sub.mvarId!], rel, .app f' e', p)
     else
       atom Ψ t

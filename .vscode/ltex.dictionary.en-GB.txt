@@ -1,2 +1,4 @@
 subterm
 subrelation
+subrelations
+subgoal

@@ -28,6 +28,15 @@ structure RewriteResultInfo where
   rewMVars : List Expr
   deriving BEq, Repr
 
+instance : ToMessageData RewriteResultInfo where
+  toMessageData info :=
+    m!"RewriteResultInfo:\n" ++
+    m!"  rewCar: {info.rewCar}\n" ++
+    m!"  rewFrom: {info.rewFrom}\n" ++
+    m!"  rewTo: {info.rewTo}\n" ++
+    m!"  rewPrf: {info.rewPrf}\n" ++
+    m!"  rewMVars: {info.rewMVars}"
+
 /--
 The Information about the hypothesis uses in a rewrite (e.g. `h` for `grewrite [h]`).
 
@@ -152,14 +161,19 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
       let mut rewMVars := []
       let mut u := fn
       -- If ρ matches f of an application f a b then ρ cannot match any other aplicant directly
-      let lhs := if l2r then ρ.c1 else ρ.c2
-      if lhs == fn then
-        logInfo "fold pointwise"
+      if let (Ψ', .success res) ← unify Ψ fn l2r ρ then
         let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[← inferType t]
         let prf ← appArgs.foldrM (fun (_, T) acc => mkAppM ``pointwiseRelation #[T, acc]) rel
-        let sub ← mkFreshExprMVar <| ← mkAppM ``Subrel #[ρ.rel, prf]
-        let subPrf ← mkAppOptM ``Subrel.subrelation <| #[none, none, none, sub, none, none, ρ.prf] ++ appArgs.map fun (t, _) => .some t
-        return (Ψ ++ [rel.mvarId!], .success ⟨rel, t, mkAppN ρ.car <| appArgs.map Prod.fst, subPrf, []⟩)
+        let sub ← mkFreshExprMVar <| ← mkAppM ``Subrel #[res.rewCar, prf]
+        let p ← mkAppOptM ``Subrel.subrelation <| #[none, none, none, sub, none, none, ρ.prf] ++ appArgs.map fun (t, _) => .some t
+        u := mkAppN res.rewTo <| appArgs.map Prod.fst
+        let r ← subterm Ψ u desiredRel l2r (depth + 1)
+        match r.snd with
+        | .success res => logInfo m!":::::{res}"
+        | .id => logInfo "id"
+        | .fail => logInfo "fail"
+        logInfo m!"{t} ⤳ {u}; p: {p}; car: {rel}"
+        return (Ψ ++ [rel.mvarId!], .success ⟨rel, t, u, p, []⟩)
       for (t, T) in appArgs do
         let desiredRel ← mkFreshExprMVar <| ← mkAppM ``relation #[T]
         let (Ψ', res) ← subterm Ψ t desiredRel l2r (depth+1) ρ
@@ -182,7 +196,7 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
           prfArgs := prfArgs ++ [proxyPrf]
           u := .app u t
         | .success rew =>
-          logInfo m!"Proof arg {t}: {rew.rewPrf}"
+          logInfo m!"Proof arg {t}: {rew}"
           respectfulList := respectfulList ++ [rew.rewCar]
           Ψ := Ψ' ∪ Ψ
           prfArgs := prfArgs ++ [rew.rewPrf]
@@ -200,8 +214,8 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
       let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, fn]
       let prfs := prfArgs.toArray.flatMap (#[none, none, .some .])
       let p ← mkAppOptM ``Proper.proper <| #[none, none, none, prp] ++ prfs
-      logInfo m!"Resulting proof: {p}"
       trace[Meta.Tactic.grewrite] "{srep depth} |APP {t}"
+      logInfo m!"{t} ⤳ {u}; p: {p}; car: {rel}"
       return (Ψ ∪ [prp.mvarId!], .success ⟨respectfulList.getLast!, t, u, p, rewMVars⟩)
     else
       atom Ψ t l2r
@@ -466,7 +480,7 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
       let (p, Ψ') ← subrelInference p r
       let Ψ := Ψ' ++ Ψ
       trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
-      --search Ψ p ρ
+      nopSearch Ψ p
 
     -- Paper approach
     let (Ψ, r, u, p) ← rew [] goalType 0 ldecl.toExpr
@@ -475,7 +489,7 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
     let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
     let Ψ := Ψ.insert m.mvarId!
     trace[Meta.Tactic.grewrite]"\n{goalType} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
-    aesopSearch Ψ p
+    --aesopSearch Ψ p
     --nopSearch Ψ p
     --search Ψ p ρ
 
@@ -510,6 +524,23 @@ example (h: a = b) (finish : b ∧ b) : a ∧ b := by
   . simp_all
   . rfl
 
+/-
+example (h : p = q) : (p → q) ∧ (p → q) := by
+  grewrite [h]
+
+
+variable (P Q : Prop)
+variable (r : relation Prop)
+variable (q : relation Prop)
+variable (rq : relation (Prop → Prop))
+variable (sr : Subrel rq (r ⟹ q))
+variable (h1 : rq (And (P → Q)) (And (Q → Q)))
+variable (h2 : r (P → Q) (Q → Q))
+
+
+def x := @Subrel.subrelation (Prop → Prop) rq (r ⟹ q) sr (And (P → Q)) (And (Q → Q)) h1 (P → Q) (Q → Q) h2
+#check x
+
 variable (f : α → α → α → Prop)
 variable (g : α → α → α → Prop)
 variable (r : relation <| α → α → α → Prop)
@@ -520,11 +551,72 @@ example (h : r f g) : f a b c ∧ f a b c:= by
     have hints : Subrel r (pointwiseRelation α (pointwiseRelation α (pointwiseRelation α hintr))) := sorry
     have hints0 : Subrel r (pointwiseRelation α (pointwiseRelation α (pointwiseRelation α hintr0))) := sorry
     have hintp : Proper (hintr ⟹ hintr0 ⟹ flip impl) And := sorry
-    have proof := @hintp.proper (f a b c) (g a b c) (@Subrel.subrelation _ _ _ hints _ _ h a b c) (f a b c) (g a b c) (hints0.subrelation h a b c)
+    have proof := (@hintp.proper (f a b c) (g a b c) (@Subrel.subrelation (α → α → α → Prop) r (pointwiseRelation α (pointwiseRelation α (pointwiseRelation α hintr)))
+    hints f g h a b c)) (f a b c) (g a b c) (hints0.subrelation h a b c)
     exact proof
   sorry
 
-/-
+example {f g : α → Prop → α → Prop} {a c : α} (h : f = g) : f a (f a True c) c := by
+  grewrite [h]
+
+variable (f : α → Prop → α → Prop)
+variable (g : α → Prop → α → Prop)
+variable (r : relation <| α → Prop → α → Prop)
+example (h : r f g) : f a (f a True c) c := by
+  have rewrite : flip impl (f a (f a True c) c) (g a (g a True c) c) := by
+    have hintr : relation Prop := sorry
+    have hints : Subrel r (pointwiseRelation α (pointwiseRelation Prop (pointwiseRelation α hintr))) := sorry
+    -- Obtained by recursive call on u (will infer because is arg)
+    have re : flip impl (g a (f a True c) c) (g a (g a True c) c) := sorry
+    --exact proof
+    have proof2 := (@Subrel.subrelation (α → Prop → α → Prop) r (pointwiseRelation α (pointwiseRelation Prop (pointwiseRelation α hintr)))
+    hints f g h a (f a True c) c)
+    have s : Subrel hintr (flip impl) := sorry
+    have tfi : Transitive (flip impl) := by
+      constructor
+      unfold flip impl at *
+      simp_all
+    have ti : Transitive (impl) := by
+      constructor
+      unfold impl at *
+      simp_all
+    -- Do the rel inference sooner (we know we can, inv. we're at the topmost app, otherw. would be seq. proper) as inferred rel is same as result from rw on u (inv. rw u is not topmost app thus can be inferred). -> and <- are trans thus we can concatenate. Works for one and only topmost f and n inner f rws.
+    have both := @tfi.trans (f a (f a True c) c) (g a (f a True c) c) (g a (g a True c) c) (@s.subrelation (f a (f a True c) c) (g a (f a True c) c) proof2) re
+    exact both
+  sorry
+
+example
+
+example {e₁ : α} {r : relation (α → Prop)} (h : r e₀ u) : e₀ e₁ := by
+  grewrite [h]
+  sorry
+
+example {e₀ : α → Prop} {r : relation α} (h : r e₁ u) : e₀ e₁ := by
+  grewrite [h]
+  sorry
+
+example {e₀ : α → Prop} {r : relation (α)} (h : r u u') : e₀ e₁ := by
+  grewrite [h]
+  sorry
+
+example {a : α} (f : α → β → α → Prop) (r : relation α) (h : r a u) : f a b a := by
+  grewrite [h]
+
+example {a : α} (f : α → β → γ → Prop) (r : relation α) (h : r a u) : f a b c := by
+  grewrite [h]
+
+example {a : α} (f : α → β → γ → Prop) (r : relation (α → β → γ → Prop)) (h : r f u) : f a b c := by
+  grewrite [h]
+
+example : Proper (Eq ⟹ (impl) ⟹ (flip impl)) And := by
+  constructor
+  unfold respectful
+  intros
+  unfold flip impl at *
+  simp_all
+  intros
+  sorry
+
 Proof sketch:
 
 Generally compare proof types and show by proof irrelevance.
@@ -534,31 +626,16 @@ structural induction:
   Lam, Pi, Arrow by triv
 
   App:
-    Case leading atoms:
-      Combine with other induction.
-
-      induction on # leading atoms:
-      base case: leading atoms = 0:
-      case n+1 leading atoms:
     Case no leading atoms:
       induction on app args:
       base case: args = 2; f a b; f:σ→τ;:
         case: .id, .rw a
-          assumption h: r a b
-          Proper.proper (r ⟹ ←) f ((?m: Proper (r ⟹ ←) f) a b h) : f a ← f b
-          =
-          @Subrel.subrelation Prop (?m1: relation Prop) (←) (?m2: Subrel ?m1 ←) (f a) (f b) (Subrel.subrelation Proper.proper a b h) : f a ← f b
-          by propext
         case: rw, id
         case: id, id
-        case: rw, rw
       case n+1; f ... a b
         case: b = id
         case: b = rw
-    (Case leading f rw): May not be relevant
-    (Case all id): Maaaybe redundant
   Atom?:
-
 
 Soundness über Inferenzregeln (neue regel kann über alte regeln gezeigt (inferiert) werden)
 -/
