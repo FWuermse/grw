@@ -4,7 +4,11 @@ This library implements generalised rewriting based on the Coq approach and the 
 
 ## Roadmap
 
-- [x] generate the same constraints coq does
-- [ ] compare algorithm and constraints of the coq and the paper version
-- [ ] recreate eauto efficiently to handle multiple related goals
+- [x] Constraint generation
+    - [x] generate the same constraints coq does
+    - [x] compare algorithm and constraints of the coq and the paper version
+- [ ]
+    - [x] recreate eauto efficiently to handle multiple related goals
+    - [ ] support adding tactics and theorems dynamically
 - [ ] solve real-world grw problems
+    - [ ] idris port

@@ -9,165 +9,86 @@ set_option trace.Meta.Tactic.eauto.hints true
 set_option trace.Meta.Tactic.eauto.goals true
 set_option trace.Meta.Tactic.eauto.instances true
 
-/- Coq constraints: ✓
-Proper (Iff ==> flip impl) (impl Q)
--/
-example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
+macro "finish_impl" : tactic =>
+  `(tactic| simp [impl, imp_self])
+
+example : ∀ P Q : Prop , (P ↔ Q) → (Q → P) := by
   intro P Q h
   grewrite [h]
-  repeat sorry
+  finish_impl
 
-/- Coq constraints: ✓
-Proper (?r ==> ?r0 ==> flip impl) (And)
-Proper (Iff ==> ?r0) (impl Q)
-Proper (Iff ==> ?r) (impl Q)
--/
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   intro P Q h
   grewrite [h]
-  repeat sorry
+  finish_impl
 
--- ATOM
-/- Coq constraints: ✓
-Subrel r (flip impl)
--/
-example {r : relation Prop} [hp : Proper (r ⟹ Iff) id] : r a b → b → a := by
+example {r : relation Prop} [hp : Subrel r (flip impl)] : r a b → b → a := by
   intro rab hb
   grewrite [rab]
-  repeat sorry
+  exact hb
 
--- Simple app
-/- Coq constraints: ✓
-Proper (r ==> flip impl) P
--/
-example {r : relation α} {P : α → Prop} [Proper (r ⟹ Iff) P] : r a a' → P a' → P a := by
+example {r : relation α} {P : α → Prop} [Proper (r ⟹ flip impl) P] : r a a' → P a' → P a := by
   intros h finish
   grewrite [h]
-  repeat sorry
+  exact finish
 
--- RW under respectful f
-/- Coq constraints: ✓
-Proper (r ==> ?r) f
-Proper (?r ==> flip impl) P
--/
-example {f : α → α} [Proper (r ⟹ r) f] [Proper (r ⟹ Iff) P] : r a a' → P (f a') → P (f a) := by
+example {f : α → α} [Proper (r ⟹ r) f] [Proper (r ⟹ flip impl) P] : r a a' → P (f a') → P (f a) := by
   intro h finish
   grewrite [h]
-  repeat sorry
+  exact finish
 
--- RW under lambda
-/- Coq constraints:
-Tactic failure: Nothing to rewrite.
--/
-example {a : α} {P : (α → α) → Prop} [Proper (pointwiseRelation α r ⟹ Iff) P] : r a a' → P (λ _ => a') → P (λ _ => a) := by
+example {a : α} {P : (α → α) → Prop} [Proper (pointwiseRelation α r ⟹ flip impl) P] : r a a' → P (λ _ => a') → P (λ _ => a) := by
   intro h finish
   grewrite [h]
-  repeat sorry
+  exact finish
 
 -- TODO: pi example
 
--- Transitive RW in equiv
-/- Coq constraints: ✓
-Proper (r ==> ?r ==> flip impl) r
-ProperProxy ?r c
--/
 example {r : α → α → Prop} [Equiv r] : r a b → r b c → r a c := by
   intro rab rbc
   grewrite [rab]
+  -- TODO: missing theorems for Equiv rels in proof search
   repeat sorry
 
--- More Coq comparisons:
-
-/- ✓
-Produces:
-  ?m1 : Proper (Iff ==> ?r) (impl Q)
-  ?m2 : Proper (?r ==> flip impl) (And Q)
--/
-example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → P) := by
-  intros P Q H
+example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → Q) → Q ∧ (Q → P) := by
+  intros P Q H finish
   grewrite [H]
-  repeat sorry
+  exact finish
 
-example (m2 : Proper (m1 ⟹ flip impl) (And Q)) (H: P ↔ Q) (m3 : Proper (Iff ⟹ m1) (impl Q)) (hs : Subrel (flip impl) (m1)) : (P ↔ Q) → Q ∧ (Q → P) := by
-  intro h
-  have p := @Proper.proper (Prop → Prop) (m1 ⟹ flip impl) (And Q) m2 (impl Q P) (impl Q Q) (@Proper.proper (Prop → Prop) (Iff ⟹ m1) (impl Q) m3 P Q H)
-  have s := @Subrel.subrelation _ (flip impl) m1 hs (Q ∧ impl Q P) (Q ∧ impl Q Q) p
-  sorry
-
-/- ✓
-Produces:
-  ?m2 : Proper (Iff ==> ?r0 ==> ?r) impl
-  ?m3 : ProperProxy ?r0 Q
-  ?m1 : Proper (?r ==> flip impl) (And Q)
--/
-example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (P → Q) := by
-  intros P Q H
+example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → Q) → Q ∧ (P → Q) := by
+  intros P Q H finish
   grewrite [H]
-  repeat sorry
+  exact finish
 
-/- ✓
-Produces:
-  ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
-  ?m2 : ProperProxy ?r Q
--/
-example : ∀ P Q : Prop, (P ↔ Q) → P := by
-  intros P Q H
+example [Subrel Iff (flip impl)] : ∀ P Q : Prop, (P ↔ Q) → Q → P := by
+  intros P Q H finish
   grewrite [H]
-  repeat sorry
+  exact finish
 
-/- ✓
-Produces:
-  ?m1 : Proper (Iff ==> ?r ==> flip impl) impl
-  ?m2 : ProperProxy ?r Q
--/
-example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
-  intros P Q H
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) → (P → Q) := by
+  intros P Q H finish
   grewrite [H]
-  repeat sorry
+  exact finish
 
-/- ✓
-Produces:
-  ?m1 : Proper (Iff ==> flip impl) (impl Q)
--/
-example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
-  intros P Q H
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) → (Q → P) := by
+  intros P Q H finish
   grewrite [H]
-  repeat sorry
+  exact finish
 
--- ✓ This is (seemingly) just different by moving the first applicant out the app into a proxy. Still sus.
-/-
-Produces:
-  ?m2 : Proper (Iff ==> ?r ==> flip impl) And
-  ?m1 : Proper (Iff ==> ?r0 ==> ?r) impl
-  ?m2 : ProperProxy ?r0 Q
--/
-example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (P → Q) := by
-  intros P Q H
+example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → Q) → P ∧ (P → Q) := by
+  intros P Q H finish
   grewrite [H]
-  repeat sorry
+  exact finish
 
-/- ✓
-Produces:
-  ?m1 : Proper (Iff ==> ?r) (impl Q)
-  ?m2 : Proper (Iff ==> ?r ==> flip impl) And
--/
-example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (Q → P) := by
-  intros P Q H
+example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → Q) → P ∧ (Q → P) := by
+  intros P Q H finish
   grewrite [H]
-  repeat sorry
+  exact finish
 
-/- ✓
-Produces:
-  ?m1 : Proper (?r ==> ?r0 ==> flip impl) and
-  ?m2 : Proper (iff ==> ?r0) (impl Q)
-  ?r : Relation Prop
-  ?m3 : Proper (Iff => ?r) (impl Q)
-  ?r0 : Relation Prop
--/
-example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
-  intros P Q H
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) ∧ (Q → Q) → (Q → P) ∧ (Q → P) := by
+  intros P Q H finish
   grewrite [H]
-  repeat sorry
+  exact finish
 
 -- Examples from Sébastien Michelland
 
@@ -180,12 +101,9 @@ variable [Proper_fαβ: Proper (Rα ⟹ Rβ) fαβ]
 variable [Proper_Pα: Proper (Rα ⟹ Iff) Pα]
 variable [PER Rα] [PER Rβ]
 
--- Smallest example
-/- Coq constraints ✓
-Proper (Rα ==> flip impl) Pα
--/
 example (h: Rα a a') (finish: Pα a') : Pα a := by
   grewrite [h]
+  -- TODO add per theorems to proof search
   repeat sorry
 
 -- Rewrite a PER within itself
@@ -427,7 +345,8 @@ TBD
 -/
 example {r : α → α → Prop} [Equiv r] : r b a → r b c → r a c := by
   intro rab rbc
-  grewrite [← rab]
+  -- TODO. make rhs and lhs abstract everywhere not just in unify.
+  --grewrite [← rab]
   repeat sorry
 
 end Examples

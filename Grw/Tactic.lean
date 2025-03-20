@@ -110,7 +110,7 @@ private def atom (Ψ : List MVarId) (t : Expr) (r2l : Bool) : RWM  := do
   -- TODO confirm below line
   let p ← mkAppOptM ``Proper.proper #[none, none, none, m]
   -- paper says include S.mvardId! But those will implicitly reappear when setting new goals
-  return (Ψ ∪ [m.mvarId!], .success ⟨S, t, t, p, []⟩)
+  return (Ψ ∪ [m.mvarId!, S.mvarId!], .success ⟨S, t, t, p, []⟩)
 
 private def respectfulN (mvars : List Expr) : MetaM  Expr :=
   match mvars with
@@ -133,7 +133,6 @@ private def subrelInference (p : Expr) (r : Expr) : MetaM (Expr × Expr × List 
 
 /--
 `rew` always succeeds and returns a tuple (Ψ, R, τ', p) with the output constraints, a relation R, a new term τ' and a proof p : R τ τ'. In case no rewrite happens we can just have an application of ATOM.
-
 This output tuple represents the proof sekelton that is used in the proof search.
 -/
 partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : Bool) (depth : Nat) : RWM  := do
@@ -172,6 +171,7 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
         let p ← mkAppOptM ``Subrel.subrelation <| #[none, none, none, sub, none, none, res.rewPrf] ++ appArgs.map fun (t, _) => .some t
         u := mkAppN res.rewTo <| appArgs.map Prod.fst
         let (Ψ'', snd) ← subterm Ψ u desiredRel l2r (depth + 1)
+        -- TODO: include both shadowed rels in psi
         if let .success res := snd then do
           let (p₁, rel, Ψ₁) ← subrelInference p rel
           let (p₂, _, Ψ₂) ← subrelInference res.rewPrf res.rewCar
@@ -219,6 +219,8 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
       let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, fn]
       let prfs := prfArgs.toArray.flatMap (#[none, none, .some .])
       let p ← mkAppOptM ``Proper.proper <| #[none, none, none, prp] ++ prfs
+      if rel.isMVar then
+        Ψ := Ψ ∪ [rel.mvarId!]
       trace[Meta.Tactic.grewrite] "{srep depth} |APP {t}"
       return (Ψ ∪ [prp.mvarId!], .success ⟨respectfulList.getLast!, t, u, p, rewMVars⟩)
     else
@@ -425,7 +427,7 @@ def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) : TacticM Unit := do
   let rels := [``Iff, ``impl, ``Eq, ``flip]
   let rels ← rels.mapM (do mkConstWithFreshMVarLevels .)
   for rel in rels do
-    hintDB ← hintDB.insert rel (← mkAppM ``relation #[.sort 0])
+    hintDB ← hintDB.insert (← mkAppM ``relation #[.sort 0]) rel
   let _ ← dfs Ψ hintDB ρ
   let goal ← getMainGoal
   let subgoals ← goal.apply (← instantiateMVars prf)
@@ -470,22 +472,14 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
       let Ψ := Ψ' ++ Ψ
       trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
       search Ψ p ρ
-    /-
-    -- Paper approach
-    let (Ψ, r, u, p) ← rew [] goalType 0 ldecl.toExpr
-    let finalGoal ← mkAppM ``Subrel #[r, ← mkAppM ``flip #[mkConst ``impl]]
-    let m ← mkFreshExprMVar finalGoal
-    let p ← mkAppOptM ``Subrel.subrelation #[none, none, none, m, none, none, p]
-    let Ψ := Ψ.insert m.mvarId!
-    trace[Meta.Tactic.grewrite]"\n{goalType} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
-    --nopSearch Ψ p
-    --search Ψ p ρ
-    -/
 
 elab "grewrite" "[" ps:rw,+ "]" : tactic =>
   algorithm ps
 
-private def debug (ps : Syntax.TSepArray `rw ",") (ts : Syntax.TSepArray `term ",") : TacticM Unit := withMainContext do
+/-
+This function just mimics the rewrite algorithm and compares the output of the constraint generation algorithm with the provided constraints `ts`.
+-/
+private def assertConstraints (ps : Syntax.TSepArray `rw ",") (ts : Syntax.TSepArray `term ",") : TacticM Unit := withMainContext do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"algorithm") do
   let lctx ← getLCtx
   -- Confirm all passed lemmas are in the local context
@@ -510,9 +504,9 @@ private def debug (ps : Syntax.TSepArray `rw ",") (ts : Syntax.TSepArray `term "
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {ldecl.userName}."
     | .fail => logError "Rewrite failed to generate constraints."
-    | .success ⟨r, t, u, p, _subgoals⟩ =>
+    | .success ⟨r, _, _, p, _subgoals⟩ =>
       -- TODO: set subgoals
-      let (p, r, Ψ') ← subrelInference p r
+      let (_, _, Ψ') ← subrelInference p r
       let Ψ := Ψ' ++ Ψ
       let ts ← ts.getElems.mapM (fun t => do elabTerm t.raw none)
       let Ψ ← Ψ.mapM (fun e => do e.getType)
@@ -523,19 +517,6 @@ private def debug (ps : Syntax.TSepArray `rw ",") (ts : Syntax.TSepArray `term "
           throwError "Constraints don't match at idx: {i}, {e} ≠ {ts.get! i}"
 
 elab "assert_constraints" "[" ps:rw,+ "]" t:term,+ ";": tactic =>
-  debug ps t
+  assertConstraints ps t
 
 end Tactic
-
-set_option trace.Meta.Tactic.grewrite true
---set_option trace.Meta.isDefEq true
-
-variable (α β γ: Type)
-variable (Rα: relation α) (Rβ: relation β) (Rγ: relation γ)
-variable (Pα: α → Prop) (Pβ: β → Prop) (Pγ: γ → Prop)
-variable (Pαβγ: α → β → Prop)
-variable (fαβ: α → β) (fβγ: β → γ)
-variable [Proper_fαβ: Proper (Rα ⟹ Rβ) fαβ]
-variable [Proper_Pα: Proper (Rα ⟹ Iff) Pα]
-variable [PER Rα] [PER Rβ]
-variable (Rαα: relation (Prop → Prop))

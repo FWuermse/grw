@@ -6,4 +6,3 @@ import Grw.PaperTactic
 import Grw.Eauto
 
 import Grw.TestsEauto
-import Grw.TestsGrewrite
