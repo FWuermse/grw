@@ -177,10 +177,8 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
           let (p₂, _, Ψ₂) ← subrelInference res.rewPrf res.rewCar
           -- Invariant: all desired rels are Prop and transitive and res is of desired rel
           let tr ← mkFreshExprMVar <| ← mkAppOptM ``Transitive #[none, rel]
-          logInfo m!"t: {t}, u: {u}, u': {res.rewTo}"
           let p ← mkAppOptM ``Transitive.trans #[none, none, tr, t, u, res.rewTo, p₁, p₂]
           return (Ψ ++ Ψ'' ++ Ψ₁ ++ Ψ₂ ++ [tr.mvarId!], .success ⟨rel, t, res.rewTo, p, []⟩)
-        logInfo m!"{t} ⤳ {u}; p: {p}; car: {rel}"
         return (Ψ ++ [rel.mvarId!], .success ⟨rel, t, u, p, []⟩)
       for (t, T) in appArgs do
         let desiredRel ← mkFreshExprMVar <| ← mkAppM ``relation #[T]
@@ -204,7 +202,6 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
           prfArgs := prfArgs ++ [proxyPrf]
           u := .app u t
         | .success rew =>
-          logInfo m!"Proof arg {t}: {rew.rewPrf}"
           respectfulList := respectfulList ++ [rew.rewCar]
           Ψ := Ψ' ∪ Ψ
           prfArgs := prfArgs ++ [rew.rewPrf]
@@ -222,7 +219,6 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
       let prp ← mkFreshExprMVar <| ← mkAppM ``Proper #[respectful, fn]
       let prfs := prfArgs.toArray.flatMap (#[none, none, .some .])
       let p ← mkAppOptM ``Proper.proper <| #[none, none, none, prp] ++ prfs
-      logInfo m!"Resulting proof: {p}"
       trace[Meta.Tactic.grewrite] "{srep depth} |APP {t}"
       return (Ψ ∪ [prp.mvarId!], .success ⟨respectfulList.getLast!, t, u, p, rewMVars⟩)
     else
@@ -331,7 +327,6 @@ private def solveRespectfulN (goal : MVarId) : MetaM MVarId := do
   let type ← inferType type.getAppFn
   if let .app (.const ``relation _) arrow := type then
     if (← whnf arrow).arrow?.isSome && isLam then
-      logInfo m!"solveRespectfulN: {type}"
       let subgoal ← unfoldTarget goal ``respectful
       let subgoal ← subgoal.intros
       return subgoal.snd
@@ -372,7 +367,7 @@ private def tryTactic (subgoals : List MVarId) (name : String) (tactic : MVarId 
       trace[Meta.Tactic.grewrite]m!"No progress with {name}: {← goal.getType}"
   return subgoals
 
-partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : HypInfo) : TacticM (List MVarId) := do
+private partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : HypInfo) : TacticM (List MVarId) := do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"search") do
   for goal in goals do
     let mut subgoals := []
@@ -390,8 +385,6 @@ partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : HypInfo) :
     Check mathlib for tactic registration. (see Lean.registerTagAttribute, persistantEnvExtension)
     Env extension as discrtree (check simp attribute)
     serialise Discrtree keys
-
-
     -/
     for matchingHint in matchingHints do
       trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {matchingHint}"
@@ -428,6 +421,11 @@ def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) : TacticM Unit := do
     let type ← inferType hint
     let (fvars, _, type) ← forallMetaTelescope type
     hintDB ← hintDB.insert type hint
+  -- See (https://github.com/coq/coq/pull/13969)[Coq]
+  let rels := [``Iff, ``impl, ``Eq, ``flip]
+  let rels ← rels.mapM (do mkConstWithFreshMVarLevels .)
+  for rel in rels do
+    hintDB ← hintDB.insert rel (← mkAppM ``relation #[.sort 0])
   let _ ← dfs Ψ hintDB ρ
   let goal ← getMainGoal
   let subgoals ← goal.apply (← instantiateMVars prf)
@@ -487,6 +485,46 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
 elab "grewrite" "[" ps:rw,+ "]" : tactic =>
   algorithm ps
 
+private def debug (ps : Syntax.TSepArray `rw ",") (ts : Syntax.TSepArray `term ",") : TacticM Unit := withMainContext do
+  withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"algorithm") do
+  let lctx ← getLCtx
+  -- Confirm all passed lemmas are in the local context
+  let mut ldecls : List (LocalDecl × Bool × TSyntax `rw) := []
+  for ps' in lctx do
+    for p in ps.getElems do
+      let (name, l2r) ← match p with
+      | `(rw|← $i:ident) => do pure (i.getId, false)
+      | `(rw|$i:ident) => do pure (i.getId, true)
+      | s => throwError m!"syntax {s} is invalid."
+      if name == ps'.userName then
+        ldecls := ldecls ++ [(ps', l2r, p)]
+      else
+        continue
+  for (ldecl, l2r, stx) in ldecls do
+    let goal ← getMainGoal
+    let goalType ← goal.getType
+    let Ψ := []
+    let ρ ← toHypInfo ldecl.toExpr
+    let flipImpl ← mkAppM ``flip #[mkConst ``impl]
+    let (Ψ, res) ← subterm Ψ goalType flipImpl l2r 0 ρ
+    match res with
+    | .id => logWarningAt stx m!"Nothing to rewrite for {ldecl.userName}."
+    | .fail => logError "Rewrite failed to generate constraints."
+    | .success ⟨r, t, u, p, _subgoals⟩ =>
+      -- TODO: set subgoals
+      let (p, r, Ψ') ← subrelInference p r
+      let Ψ := Ψ' ++ Ψ
+      let ts ← ts.getElems.mapM (fun t => do elabTerm t.raw none)
+      let Ψ ← Ψ.mapM (fun e => do e.getType)
+      for (e, i) in Ψ.zipIdx do
+        if ← isDefEq e <| ts.get! i then
+          continue
+        else
+          throwError "Constraints don't match at idx: {i}, {e} ≠ {ts.get! i}"
+
+elab "assert_constraints" "[" ps:rw,+ "]" t:term,+ ";": tactic =>
+  debug ps t
+
 end Tactic
 
 set_option trace.Meta.Tactic.grewrite true
@@ -501,21 +539,3 @@ variable [Proper_fαβ: Proper (Rα ⟹ Rβ) fαβ]
 variable [Proper_Pα: Proper (Rα ⟹ Iff) Pα]
 variable [PER Rα] [PER Rβ]
 variable (Rαα: relation (Prop → Prop))
-
-/-
-Coq constraints:
-  ?r : relation Prop
-  ?s : subrelation Raa (pointwiseRelation Prop ?r)
-  ?s0 : subrelation ?r (flip impl)
--/
-example (h: a = b) (finish : b ∧ b) : a ∧ b := by
-  grewrite [h]
-  . exact finish
-  . exact Eq
-  . simp_all
-  . rfl
-
-
-variable (f : α → Prop → γ → Prop)
-example (h: f = g) : f a (f a (f a (f a True c) c) c) c := by
-  grewrite [h]
