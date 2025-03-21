@@ -30,12 +30,8 @@
 }
 
 = Introduction <Introduction>
-TODO: Lean issue with Instance search
-TODO: Why do we need tactics aswell?
-TODO: Introduction mention my contribution (Paper algo, coq algo, first description of coq algo, algos equiv?, impl in lean)
-TODO: Fix up proof.
+TODO: Fix up proof (use mono font).
 TODO: mention why we even need rewrite proofs (we're extending Lean and not changing it's core theory and defeq stuff.)
-TODO: mention l2r and flip impl vs impl rewrites.
 
 Rewriting in theorem provers is the process of replacing a subterm of an expression with another term. When and if such a rewrite can happen depends on the context, i.e., the information we have about the two terms. In Lean, rewriting is possible when two terms $t$ and $u$ are equal $t = u$ or with respect to the `propext` axiom when two propositions $p : mono("Prop")$ and $q : mono("Prop")$ imply each other $p <-> q$. This allows us to replace a term in a goal we want to solve or inside one of our hypothesis when doing reasoning in Lean.
 
@@ -104,13 +100,14 @@ In this thesis we will take a deeper look at the algorithm for generalised rewri
 
 This highlights our contributions are the following:
 - Implement the algorithm seen in the paper in Lean 4
-- Capture the essence of the optimized algorithm that evolved in Coq over ten years for the first time
+- Provide the first description of the optimised Coq implementation that evolved over the last decade
 - Implement the optimized algorithm in Lean 4
+- Complete the optimized algorithm to be consistent with the algorithm mentioned in the paper
 - Show that both alogrithm lead to the same rewrite proofs
 
 = Algorithm for Genralised Rewriting <PaperAlgo>
 
-The core idea of the approach for rewriting proposed in @sozeau:inria-00628904 is to break down generalised rewriting into two parts. The first part is an algorithm that generates a large proof skeleton for the rewrite leveraging `Proper`, `respectful`, and `Subrelation` as seen above. In previous examples we have seeen that while we know what types such a proof must have we don't always know the actual instances of the `Proper` or `Subrelation` classes. They each only have a single constructor. We know that a proof for a `Subrelation` term must be constructed with `Subrelation.subrelation` meaning a proof that for a given relation $q$ and a given relation $r$, all $x$ and $y$ must satisfy $q space x space y -> r space x space y$ and similarly for `Proper` proofs. We may however not always know the proof for $forall x y, q space x space y -> r space x space y$. This is why the algorithm uses metavariables for those instances and for some sub-expressions. For instance a proof skeleton for a simple atomic term $p : mono("Prop")$ and a proof $h : r space p space q$ would be a proof $mono("Subrelation.subrelation (Prop)") r space (<-) space ?_m space p space q space h$. Notice that $?_m$ is a metavariable of type $mono("Subrelation" r space (<-))$ which unfolds to $forall x y, r space x space y -> (x <- y)$. The application $?_m space p space q space h$ gives us the desired rewrite. The assignment for the metavariable $?_m$ is unknown and left as a hole in this proof. With more nested terms this algorithm collects multiple unassigned metavariables.
+The core idea of the approach for rewriting proposed in @sozeau:inria-00628904 is to break down generalised rewriting into two parts. The first part is an algorithm that generates a large proof skeleton for the rewrite leveraging `Proper`, `respectful`, and `Subrelation` as seen above. In previous examples we have seeen that while we know what types such a proof must have we don't always know the actual instances of the `Proper` or `Subrelation` classes. They each only have a single constructor. We know that a proof for a `Subrelation` term must be constructed with `Subrelation.subrelation` meaning a proof that for a given relation $q$ and a given relation $r$, all $x$ and $y$ must satisfy $q space x space y -> r space x space y$ and similarly for `Proper` proofs. We may however not always know the proof for $forall x y, q space x space y -> r space x space y$. This is why the algorithm uses metavariables for those instances and for some sub-expressions. For instance a proof skeleton for a simple atomic term $p : mono("Prop")$ and a proof $h : r space p space q$ would be a proof $mono("Subrelation.subrelation (Prop)") space r space (<-) space ?_m space p space q space h$. Notice that $?_m$ is a metavariable of type $mono("Subrelation" space r space (<-))$ which unfolds to $forall x y, r space x space y -> (x <- y)$. The application $?_m space p space q space h$ gives us the desired rewrite. The assignment for the metavariable $?_m$ is unknown and left as a hole in this proof. With more nested terms this algorithm collects multiple unassigned metavariables.
 
 This is where the second part of the proposed approach, a proof search, comes into play. In Coq this proof search is realised using type class relsoltuion. Type class resolution in Coq searches through user defined instances of a type class and applies those instances. For example the typeclass instance `iff_impl_subrelation` is an instance for the `Subrelation` typeclass in Coq that provides a proof for $mono("Subrelation" (<->) space (<-))$ which can be leveraged whenever the rewrite relation is $(<->)$.
 
@@ -118,14 +115,17 @@ The algorithm in @rewalgo is an imperative translation of the declarative algori
 
 All remaining cases are also treated as constants (`const`). The algorithm takes an empty constraint set $Psi$, a term $t$ in that we want to rewrite and a proof $rho$ that is of the type $r space a space b$ where $r$ is a relation, $a$ is a term we want to rewrite in $t$ and $b$ is the value we want to replace $a$ with. The algorithm outputs a modified set $Psi$ which contains all holes in the rewrite proof that cannot be determined in some of the cases of the algorithm (represented as metavariables in Lean), a carrier relation $r$ for the rewrite, the modified term $u$ and finally the proof for the rewrite. At the beginning we always check whether the term we want to rewrite unifies directly for the given proof $rho$. In that case the proof-result for a rewrite would just be $rho$. Because $rho$ (and any proof-result of this algorithm) is not of the type $t <- u$ we will wrap the output of the algorithm in a proof for $"Subrelation" r space (<-)$. @infersub represents a small algorithm responsible for that subrelation wrapping. When rewriting with `Rew` we can simply invoke $mono("InferRel") (mono("success Rew")_rho (emptyset, t), t)$. We will cover `InferRel` and the `RewriteResult` type in depth in @updatedalgo.
 
-Whenever a term $t$ does not unify directly we examine its structure and use a different approach depending on whether $t$ is an application, lambda, dependent/non-dependent arrow, or constant. Whenever we encounter an application $f space e$ we perform a recursive call on both $f$ and $e$. We use the obtained carrier relation $r_f$, proof, and term to construct a proof that $r_f$ is a subrelation of $r_e ==> ?_T$. This is where the first holes occur that we collect in the constraint set. This generates a proof for $r t u$. Recall that we construct a $"Subrelation" r space (<-)$ after invoking `Rew` which leads to a proof of $t <- u$.
+Unification is the process of identifying whether two expressions can be identically substituted or unified @unification. In Lean 4 this refers to checking for definitional equality @carneiro2019type of the two terms after binding all variables bound by all-quantifiers. For instance the expressions $forall x_0 dots x_n, a$ and a term $a'$ would unify if and only if $a' equiv a$.
+
+When we want to rewrite a term $t$ with the left-hand-side of a rewrite theorem $rho : r space a space a'$ we need to check for unification of $a$ with a subterm of $t$. However sometimes we may want to rewrite right-to-left. To achieve the this we instead check if $a'$ unifies with a subterm of $t$. In Lean's `rewrite` tactic the direction can be satated with an arrow $mono("rewrite [") <- rho mono("]")$ for right-to-left and per default $mono("rewrite [") rho mono("]")$ for left-to-right rewrites. Througout this thesis we will always assume that a rewrite is left-to-right as it is very simple to change the direction. The only change required for the algorithm to work right-to-left is to update the `unify` function that we will see in this section. 
+
+Whenever a term $t$ does not unify directly we examine its structure and use a different approach depending on whether $t$ is an application, lambda, dependent/non-dependent arrow, or constant. Whenever we encounter an application $f space e$ we perform a recursive call on both $f$ and $e$. We use the obtained carrier relation $r_f$, proof, and term to construct a proof that $r_f$ is a subrelation of $r_e ==> ?_T$. This is where the first holes occur that we collect in the constraint set. This generates a proof for $r space t space u$. Recall that we construct a $"Subrelation" r space (<-)$ after invoking `Rew` which leads to a proof of $t <- u$.
 
 For rewrites inside lambda terms we bind $x : tau$ to the local context and perform a recursive rewrite on the body of the lambda. The resulting proof wrapped in a fresh lambda expression binding $x : tau$ represents the proof for $r space (lambda x:tau. b) space (lambda x:tau. b')$ again progressing to $(lambda x:tau. b) <- (lambda x:tau. b')$ eventually.
 
 All other cases leverage either the lambda or application cases by converting them slightly to fit in the scheme. The non-dependent arrow case is simply transformed into a function that represents an arrow. This has the advantage that locally declared functions (`impl` in this case) are considered constants in Lean and thus reuse the already defined application case. Similarly, for the case of an all quantifier that uses a local dependent function `all`.
 
-Finally, we will take a look the last case is triggered whenever none of the above cases match. This is the case for constants such as `all`, `impl`, or simply for atoms that don't unify at the beginning of the `Rew` function. In this case we construct another metavariable of type $"Proper" tau space ?_r t'$ that is treated as a hole at the bottom of the proof tree and essentially represents a proof for an identity rewrite from $t$ to $t$. TODO clearify that this is a hole of the rel. This will always happen for this algorithm as we never specify the desired relation for the proof and generate metavariables whenever we don't know the relation.
-
+Finally, we will take a look at the last case that is triggered whenever none of the above cases match. This is the case for constants such as `all`, `impl`, or simply for atoms that do not unify at the beginning of the `Rew` function. In this case we construct another metavariable of type $"Proper" tau space ?_r t'$ that is treated as a hole at the bottom of the proof tree and essentially represents a syntactic hole for a proof of an identity rewrite from $t$ to $t$ over a relation that is also a metavariable. This will always happen for this algorithm as we never specify the desired relation for the proof and generate metavariables whenever we do not know the relation.
 
 #figure(
 algo(
@@ -176,6 +176,8 @@ algo(
     return ?s t u p
 ], caption: [Algorithm for Relation Inference.]) <infersub>
 
+There is also two places where a rewrite can occur. Either on the goal we are trying to solve or on a hypotheses that we want to change before applying. Similarly to the direction of the rewrite we will only consider rewriting on the hypothesis as part of the algorithm. The only required change for the algorithm to work on a hypotheses is to change the right-to-left implication $(<-)$ to a left-to-right implication $(->)$. Whenever we mention the right-to-left implication explicitly in this thesis we could exchange it for $(->)$ for the proof to work on hypotheses.
+
 == Example <examplesection>
 
 Let's recall the rewrite from $p and q$ to $q and q$ for a given relation $r$ that is a subrelation of $(<-)$ and a given proof $h : r space p space q$. The algorithm first tries to unify the entire term $p and q$ with the left-hand side of our proof ($p$). Conjunctions in Lean are defined by the `And` structure and thus our term $t$ is interpreted as $mono("And") p space q$ which must be read as $(mono("And") space p) space q$. This falls into the `app` case such that we first interpret $(mono("And") p)$ followed by $q$. Again $(mono("And") p)$ doesn't unify with $p$ and follows another `app` iteration for `And` and $p$. `And` itself does not unify and does not match any other category. So the algorithm treats it as an atom (`const`) and generates a metavariable $?_(mono("And_")r) : "relation" ("relation Prop")$ and passes ($?_(mono("And_")m) : "Proper" ("relation" mono("Prop")) space ?_(mono("And_")r) mono("And")$) for the proof of identity. The next term in line ($p$) does indeed unify with $p$ and is therefore replaced with $t$. For now the proof-placeholder will be just $h$. After the two recursive `Rew`-invocations terminate we combine the proofs and carrier relations for a proof of $r space (mono("And") space p) space (mono("And") space q)$. We start with another hole $?_(mono("And_")p) : "subrelation" ?_(mono("And_")r) (r ==> (?_T : "relation (Prop" -> "Prop)"))$. Recall that `Subrelation` is a typeclass with only constructor `subrelation`. Thus, any metavariable of type `Subrelation` must be of that constructor and eventually unfolds to $forall r_1 space r_2, ?_"rel" space r_1 space r_2 -> forall x space y, r space x space y -> ?_T space x space y -> ?_T (r_1 space x) space (r_2 space y)$. This allows us to construct the desired proof by carefully applying the arguments $?_(mono("And_")p) mono("And") mono("And") space ?_(mono("And_")m) space p space q space h$. By instantiating $r_1$ and $r_2$ with the `And` relation and $p$ and $q$ for $x$ and $y$ we receive our desired rewrite proof for this part of the term $?_(mono("And_")T) $.
@@ -186,7 +188,7 @@ The next rewrite to be evaluated is the identity rewrite for $q$. We follow the 
 
 There are two issues with this proof. The first issue is that the rewrite proof output of $"Rew"_h (emptyset, p and q)$ is not an implication ($<-$) but an unknown relation $?_T'$. This can easily be fixed by creating another metavariable $?_"final"$ as a placeholder for a proof that $?_T'$ is a subrelation for ($<-$). That brings us to the second problem that the proofs contains many holes that need to be replaced with proofs. The paper @sozeau:inria-00628904 suggests a proof search that operates depth first search on the constraint set (set of metavariables).
 
-For the example of $p and q$ we collect the metavariables as we create them and end up with the final constraint set ${?_T, ?_(mono("And_")r), ?_(mono("And_")m), ?_(mono("And_")p), ?_(q"_"r), ?_(q"_"m), ?_(mono("And_")p"_"q), ?_T', ?_"final"}$. In our Lean 4 implementation we initially solved those goals using aesop TODO cite with a custom rule set containing the theorems and tactics mentioned in the Coq Morphism library TODO cite.
+For the example of $p and q$ we collect the metavariables as we create them and end up with the final constraint set ${?_T, ?_(mono("And_")r), ?_(mono("And_")m), ?_(mono("And_")p), ?_(q"_"r), ?_(q"_"m), ?_(mono("And_")p"_"q), ?_T', ?_"final"}$. In our Lean 4 implementation we initially solved those goals using aesop @aesop cite with a custom rule set containing the theorems and tactics mentioned in the Coq Morphism library @coqmorphism cite.
 
 For larger instances we developed our own proof search that is tailored to the constraints generated by the algorithm. The main difference of our custom search tactic was that we backtrack for all goals and not just the one we selected. The reason for this is that in the generated constraint set shares metavariables that can be solved easily by themselves but require more specific solutions when considering other constraints.
 
@@ -240,7 +242,7 @@ We can simplify such terms by currying the two identity arguments to the functio
 
 In this example we are left with only one relation that has to be guessed, notably also the crucial one for this rewrite to succeed. With this improvement we take away valuable time of the proof search guessing irrelevant relations and provide only the necessary ones.
 
-This only works for left-to-right identity rewrites due to the left-associativity of function application and the nature of function currying (TODO: ref).
+This only works for left-to-right identity rewrites due to the left-associativity of function application and the nature of function currying @schonfinkel1924bausteine @curry.
 
 == ProperProxy
 
@@ -260,17 +262,17 @@ The `Subterm` algorithm has an additional argument $r$ that refers to the relati
 
 We first match for function application but consider a sequence now. In practice we can differenciate nested applications and application sequences by the paranthesis. We treat the following Lean term $(((f space e_1) space  e_2) space (g space e_3))$ as an application sequence $(f) space (e_1) space (e_2) space (g space e_3)$ and only follow a recursive application call for $g space e_3$.
 
-Under the assumption that we only obtain well-formed applications we know that the function type $f$ must be unique among the application. When $f$ has the type $alpha -> beta -> gamma$ for instance we can only apply an argument of type $alpha$ or a sequence mathing the function type. Therefore $f$ cannot occur again directly in the same sequence but only in nested applications. This implies that when $f$ directly unifies with a left hand side of a rewrite relation $rho$ we can assume that no other argument unifies. This is not the case when f occurs again nested in one or multiple arguments. In such a case we can rewrite again using the updated term $u$, infer $r$ early for $p$ combine the proofs using transitivity of $r$ which is either $<-$ or $->$.
+Under the assumption that we only obtain well-formed applications we know that the function type $f$ must be unique among the application. When $f$ has the type $alpha -> beta -> gamma$ for instance we can only apply an argument of type $alpha$ or a sequence mathing the function type. Therefore $f$ cannot occur again directly in the same sequence but only in nested applications. This implies that when $f$ directly unifies with a left hand side of a rewrite relation $rho$ we can assume that no other argument unifies. This is not the case when f occurs again nested in one or multiple arguments. In such a case we can rewrite again using the updated term $u$, infer $r$ early for $p$ combine the proofs using transitivity of $r$ which is either $<-$, $->$, or a metavariable that we assign during the proof search. More details will be covered in @Implementation.
 
 If the rewrite does not occur in the rewrite function of the topmost application sequence we enter the default case where we create the mentioned a respectful chain for the entire sequence of the arguments. We define the `prefixIsId` and `fn` variables in lines 14 and 15 to track leading identity rewrites. In each loop iteration we update this variable until we reach an argument that can be rewritten. Up until that point we curry the arguments to `fn`. Whenever we have leading identity rewrites we also start building the updated term $u$ defined in line 15 by applying the arguments unchanged. If `prefixIsId` remains `true` we just return `identity`. 
 
 Once we start iterating over non-identity arguments we collect the recursive proofs and carrier relation types retrieved in line 17 in the `proofs` and `types` variables of type list defined in line 13. Whenever we reach recursive identity rewrites after successfully rewriting at least one argument we create `ProperProxy` metavariables as mentioned in the last section. We explicitly extend the constraint set $Psi$ by the relation and proof metavariables of the identity rewrites. In the case of successful rewrites we already obtained the updated constraint set $Psi'$ which contains $r'$ and $p$ at this point.
 
 Finally all collected types and proofs can be used to create a `Proper` metavariable $mono("Proper") ("types"_0 ==> dots ==> "types"_n ==> r) "fn"$. Note that $"proofs"_0$ does not neccessarily refer to the first rewrite and fn does not neccessarily refer to the $e_0$ in case there were identity rewrites. In this algorithm we also use the simplified notation of metavariable application in which we refer to the only constructor `Proper.proper`.
- 
-TODO explaination
 
-TODO special cases where we still need subrelation
+We mentioned cases where we cannot infer the relation and thus have to fall back on the use of `Subrelation`. This can happen in two cases. Either we do not enter any case because we immediately unify. In this case our proof is merely the input theorem $rho$. The type of $rho$ is $r space t space u$ for a rewrite relation $r$, the initial term $t$ and the output term $u$. The desired relation in @subterm is thus unused and we have to infer the implication for the final rewrite using a subrelation $mono("Subrelation") r (<-)$.
+
+The other case where we we fail to infer (or pass down) the relation is for function rewrites on the first element of an application e.g. a rewrite on $f$ in $f space a space b space c$. As we cannot force the output type for a chain of pointwise relation proofs we have to bridge that gap with a subrelation inference in line 11 of the `Subterm` algorithm in @subterm.
 
 #figure(
 algo(
@@ -336,252 +338,263 @@ $|$ t' $=>$#i\
 
 = Equality of the Generated Proofs
 
-We saw that in the average case the improved algorithm generates significantly less constraints and leads to more concise proofs. In the following we want to show that the two proposed algorithms for constraint generation provide the same rewrite proofs allthough with different metavariables.
+We saw that in the average case the improved algorithm generates significantly less constraints and leads to more concise proofs. In the following, we want to show that the two proposed algorithms for constraint generation provide the same rewrite proofs allthough with different metavariables.
 
-#theorem()[If the algorithm $mono("Rew")_rho (Psi, t : tau)$ provides a proof for $?_r space t space u$ where $?_r$ is of type $mono("relation") tau$ and $t != u$ for any given $tau$, $t$, $rho$, and $Psi$ then the modified algorithm $mono("Subterm")_rho (Psi, t, ?_r)$ provides either a proof for $?_r space t space u$ if the relation inference $?_r$ succeeds (See TODO) or otherwise a proof of $?_r' space t space u$ where $?_r' : mono("relation" tau)$ is a fresh metavariable of the same type. If $t = u$ the `Subterm` algorithm with the same arguments returns just the flag `identity` whereas the `Rew` algorithm provides a proof $p : ?_r space t space t$.]
+#theorem()[If the algorithm $mono("Rew")_rho (Psi, t : tau)$ provides a proof for $?_r space t space u$ where $?_r$ is of type $mono("relation") space tau$ and $t != u$ for any given $tau$, $t$, $rho$, and $Psi$ then the modified algorithm $mono("Subterm")_rho (Psi, t, ?_r)$ provides either a proof for $?_r space t space u$ if the relation inference $?_r$ succeeds (See @updatedalgo) *(1)* or otherwise a proof of $?_r' space t space u$ where $?_r' : mono("relation" space tau)$ is a fresh metavariable of the same type. If $t = u$ the `Subterm` algorithm with the same arguments returns just the flag `identity` whereas the `Rew` algorithm provides a proof $p : ?_r space t space t$ *(2)*.] <theorem1>
 
-#proof()[We show the premise by structural induction over the term $t$. The cases for lambda, pi, and arrow only differ by the additional status field. It suffices to show that applying a proof of identity ($?_r space t space t$) is equivalent to leaving $t$ unchanged. The application case can be proven by induction over the application subterms $e_0 space dots space e_n$. We start with the base case $n = 2$ (a function with one argument) and have to consider the three cases (identity, success), (success, identity), (identity, identity) under the assumption that the case (success, success) is not possible with a binary well-formed Lean application as for any $f e$ the types $f : sigma -> tau$ and $e : sigma$ cannot be the same, thus cannot both unify:
+#proof()[We show the premise by structural induction over the term $t$. The cases for lambda, pi, and arrow only differ by the additional status field. It suffices to show that applying a proof of identity ($?_r space t space t$) is equivalent to leaving $t$ unchanged. The application case can be proven by induction over the application subterms $e_0 space dots space e_n$. We start with the base case $n = 2$ (a function with one argument) and have to consider the three cases (identity, success), (success, identity), (identity, identity) under the assumption that the case (success, success) is not possible with a binary well-formed Lean application as for any $f space e$ of the types $f : sigma -> tau$ and $e : sigma$ cannot be the same, thus cannot both unify:
 
-*$"Case binary application with" n = 2 space (e_0 space e_1)$*
+- *$"Case binary application with " n = 2 space (e_0 space e_1)$*
 
-*Case $e_0 space e_1$ with $rho : r space e_0 space u$*
+  - *Case $e_0 space e_1$ with $rho : r space e_0 space u$*
 
-The minimal case of a function application with one argument where the function unifies and the argument does not.
+    The minimal case of a function application with one argument where the function unifies and the argument does not.
 
-*Proof Resulting from Rew*\
-  Given the outputs $r_e_0 : "relation" alpha -> tau$, $u : alpha -> tau$, and $p_e_0 : r_e_0 space e_0 space u$ of $mono("Rew")_rho (Psi, e_0)$ and the given outputs $r_e_1 : "relation" alpha$ and $p_e_1 : space r_e_1 space e_1 space e_1$ of $mono("Rew")_rho (Psi, e_1)$ the `Rew` algorithm combines the proofs and carrier relations into a final proof of $r_tau : (e_0 space e_1) space (u space e_1)$ where $r_tau$ is of type `relation` $tau$:
+    *Proof Resulting from Rew:*\
+    Given the outputs $r_e_0 : "relation" alpha -> tau$, $u : alpha -> tau$, and $p_e_0 : r_e_0 space e_0 space u$ of $mono("Rew")_rho (Psi, e_0)$ and the given outputs $r_e_1 : "relation" alpha$ and $p_e_1 : space r_e_1 space e_1 space e_1$ of $mono("Rew")_rho (Psi, e_1)$ the `Rew` algorithm combines the proofs and carrier relations into a final proof of $r_tau : (e_0 space e_1) space (u space e_1)$ where $r_tau$ is of type `relation` $tau$:
 
-$#align(center + horizon)[
-  #box(width: 80%, inset: 0pt)[
-    $"Subrelation.subrelation" (alpha → tau) space r_e_0 space (r_e_1 ==> r_tau) \ (?_s : "Subrelation" space r_e_0 space (r_e_1 ==> r_tau)) space e₀ space u space p_e_0 space e₁ space e₁ space p_e_1 $
-  ]
-  #box(height: 40pt, width: 1%)[
-    $ : r_tau space (e_0 space e_1) space (u space e_1)$
-  ]
-]$
+    $#align(center + horizon)[
+      #box(width: 80%, inset: 0pt)[
+        $"Subrelation.subrelation" (alpha → tau) space r_e_0 space (r_e_1 ==> r_tau) \ (?_s : "Subrelation" space r_e_0 space (r_e_1 ==> r_tau)) space e₀ space u space p_e_0 space e₁ space e₁ space p_e_1 $
+      ]
+      #box(height: 40pt, width: 1%)[
+        $ : r_tau space (e_0 space e_1) space (u space e_1)$
+      ]
+    ]$
 
-*Proof Resulting from Subterm*:\
-  Given $e_0 : alpha -> tau$ and $e_1 : alpha$ where $e_0$ unifies with the left hand side we follow the case where we build pointwise relation constraints (TODO: ref algo line 8) and obtain the following proof of $r_tau (e_0 space e_1) space (u space e_1)$ from the `Subterm` algorithm where $r_tau$ is of type `relation` $tau$ and $r$ of type `relation` $alpha -> tau$:
+    *Proof Resulting from Subterm:*\
+    Given $e_0 : alpha -> tau$ and $e_1 : alpha$ where $e_0$ unifies with the left hand side we follow the case where we build pointwise relation constraints (TODO: ref algo line 8) and obtain the following proof of $r_tau (e_0 space e_1) space (u space e_1)$ from the `Subterm` algorithm where $r_tau$ is of type `relation` $tau$ and $r$ of type `relation` $alpha -> tau$:
 
-$#align(center + horizon)[
-  #box(width: 80%)[
-    $"Subrelation.subrelation" (alpha → tau) space r space ("pointwiseRelation" alpha space r_tau) \ space (?_s : "Subrelation" r space ("pointwiseRelation" alpha space r_tau)) space e₀ space u space h space e₁$]
-  #box(height: 30pt, width: 1%)[$: space r_tau space (e₀ space e₁) space (u space e₁)$]
-  ]$
+    $#align(center + horizon)[
+      #box(width: 85%)[
+        $"Subrelation.subrelation" space (alpha → tau) space r space ("pointwiseRelation" space alpha space r_tau) \ space (?_s : "Subrelation" space r space ("pointwiseRelation" space alpha space r_tau)) space e₀ space u space h space e₁ $]
+      #box(height: 30pt, width: 1%)[$: r_tau space (e₀ space e₁) space (u space e₁)$]
+      ]$
 
-The equivalence of the two produced proofs holds by proof irrelevance.
-TODO: word it differently
+    The premise *(1)* holds because both cases result in the same proof for $t != u$.
 
-*Case $e_0 space e_1$ with $rho : r space e_1 space u$*
+  - *Case $e_0 space e_1$ with $rho : r space e_1 space u$*
 
-When only the left hand side of this minimal binary application unifies with $rho_"lhs"$:\
-*Proof Resulting from Rew*:\
-  Given the outputs $r_e_0 : "relation" alpha -> tau$ and $p_e_0 : r_e_0 space e_0 space e_0$ of $mono("Rew")_rho (Psi, e_0)$ and the given outputs $r_e_1 : "relation" alpha$, $u : alpha$, and $p_e_1 : r_e_1 space e_1 space u$ of $mono("Rew")_rho (Psi, e_1)$ the `Rew` algorithm combines the proofs and carrier relations into a final proof of $r_tau : (e_0 space e_1) space (e_0 space u)$ where $r_tau$ is of type `relation` $tau$:
+    When only the left hand side of this minimal binary application unifies with $rho_"lhs"$:\
+    *Proof Resulting from Rew:*\
+    Given the outputs $r_e_0 : "relation" alpha -> tau$ and $p_e_0 : r_e_0 space e_0 space e_0$ of $mono("Rew")_rho (Psi, e_0)$ and the given outputs $r_e_1 : "relation" alpha$, $u : alpha$, and $p_e_1 : r_e_1 space e_1 space u$ of $mono("Rew")_rho (Psi, e_1)$ the `Rew` algorithm combines the proofs and carrier relations into a final proof of $r_tau : (e_0 space e_1) space (e_0 space u)$ where $r_tau$ is of type `relation` $tau$:
 
-  $#align(center + horizon)[
-    #box(width: 80%)[
-      $"Subrelation.subrelation" (alpha → tau) space r_e_0 space (r_e_1 ⟹ r_tau) space \ (?_s : "Subrelation" r_e_0 space (r_e_1 ⟹ r_tau)) space e_0 space e_0 space p_e_0 space e_1 space u space p_e_1$
+    $#align(center + horizon)[
+      #box(width: 80%)[
+        $"Subrelation.subrelation" (alpha → tau) space r_e_0 space (r_e_1 ⟹ r_tau) space \ (?_s : "Subrelation" r_e_0 space (r_e_1 ⟹ r_tau)) space e_0 space e_0 space p_e_0 space e_1 space u space p_e_1$
+      ]
+      #box(height: 30pt, width: 1%)[
+        $: r_tau space (e_0 space e_1) space (e_0 space u)$
+      ]
+    ]$
+
+    *Proof Resulting from Subterm:*\
+
+    With function argument unifying we recursively invoke $mono("Subterm"_rho) (Psi, e_0, r_tau : "relation" tau)$ and $mono("Subterm"_rho) (Psi, e_1, r_tau)$. The first is flagged `identity` and thus returns no information. The latter results in a relation $r_e_1 : "relation" alpha$, and a proof $p_e_1 : r_e_1 space e_1 space u$. The algorithm then constructs a proof of $r_tau space (e_0 space e_1) space (e_0 space u)$:
+
+    $#align(center + horizon)[
+      #box(width: 80%)[
+        $"Proper.proper" (alpha → tau) space (r_e_1 ⟹ r_tau) space e_0 space \ (?_p : "Proper" (r_e_1 ⟹ r_tau) space e_0) space e_1 space u space p_e_1$
+      ]
+      #box(width: 1%, height: 40pt)[
+        $: r_tau (e_0 space e_1) space (e_0 space u)$
+      ]]$
+
+    The premise *(1)* holds because both cases result in the same proof for $t != u$.
+
+  - *Case $e_0 space e_1$ where $rho$ does not unify given $rho : r space u space u'$*
+    *Proof Resulting from Rew:*\
+
+    Given the outputs $r_e_0 : "relation" alpha -> tau$ and $p_e_0 : r_e_0 space e_0 space e_0$ of $mono("Rew")_rho (Psi, e_0)$ and the given outputs $r_e_1 : "relation" alpha$ and $p_e_1 : space r_e_1 space e_1 space e_1$ of $mono("Rew")_rho (Psi, e_1)$ the `Rew` algorithm combines the proofs and carrier relations into a final proof of identity $r_tau (e_0 space e_1) space (e_0 space e_1)$ under the relation $r_tau$ of type `relation` $tau$:
+
+    $#align(center + horizon)[
+      #box(width: 80%)[
+        $"Subrel.subrelation" (alpha → tau) space r_e_0 space (r_e_1 ⟹ r_tau) \ space (?_s : "Subrelation" r_e_0 (r_e_1 ⟹ r_tau)) space e_0 space e_0 space p_e_0 space e_1 space e_1 space p_e_1$
+      ]
+      #box(width: 1%, height: 40pt)[
+        $: r_tau space (e_0 space e_1) space (e_0 space e_1)$
+      ]
+    ]$
+
+    *Proof Resulting from Subterm*:\
+      While `Subterm` would simply return `identity` for such a rewrite, exiting at (See line 37 in @subterm). As `Rew` returns proof of $r_tau space t space t$ this case also holds *(2)*.
+
+- *Inductive case for $n + 1$ application subterms*
+
+    We can now assume that we have a given application sequence where both algorithms produce the same rewrite proofs (carrier relation may still differ). Our induction hypotheses states that:
+
+    $(Psi', r, e_0 ' space dots space e_n ', p : r space (e_0 space dots space e_n) space (e_0' space dots space e_n')) := mono("Rew"_rho) (Psi, e_0 space dots space e_n)$ implies:\ $(Psi'', r',e_0 ' space dots space e_n ', p' : r space (e_0 space dots e_n) space (e_0 ' space dots space e_n ')) := mono("Subterm"_rho) (Psi, e_0 space dots space e_n, r)$ \if $e_0 space dots space e_n != e_0 ' space dots space e_n '$ and $(Psi'', mono("identity")) := mono("Subterm"_rho) (Psi, e_0 space dots space e_n, r)$ otherwise.
+
+    We must now also show that:\ $(Psi', r, e_0 ' space dots space e_(n+1) ', p : r space (e_0 space dots space e_(n+1)) space (e_0 ' space dots e_(n+1) ')) := mono("Rew"_rho) (Psi, e_0 space dots space e_(n+1) ')$ implies:\
+    $(Psi'', r', e_0 ' space dots space e_(n+1) ', p' : r' space (e_0 space dots space e_(n+1)) space (e_0 ' space dots space e_(n+1) ')) := mono("Subterm"_rho) (Psi, e_0 space dots space e_(n+1), r)$ if $e_0 space dots space e_(n+1) != e_0 ' space dots space e_(n+1) '$ and $(Psi'', mono("identity")) := mono("Subterm"_rho) (Psi, e_0 space dots space e_(n+1), r)$ otherwise.
+
+    There are four cases for the inductive step. Either the previous sequence was an identity rewrite in which case we must divide between another identity rewrite or a successful rewrite. If the previous sequence contains at least one successful rewrite we also have the scenarios of another rewrite or a final identity. This differenciation is crucial to align with the Leading Identity Rewrite and Identity/Success Status optimisation.
+
+  - *Case $e_0 space dots space e_n space e_(n+1)$ where we rewrote $e_0 space dots space e_n$ and $e_(n+1)$ unifies with $rho_"lhs"$*
+
+    *Proof Resulting from Rew:*
+
+    We can proof this similarly to the base case as we always treat applications binary here and read left-to-right. We know from our induction hypotheses that we obtain a single relation, proof, and rewritten term from the rewrite on $e_1 space dots space e_n$. Let the relation be $r_e_n : "relation" (alpha_0 space dots space alpha_n space tau)$. As we only consider well-formed applications and we are considering the last element of such an application we can imply that $r_e_n$ must be a an arrow type. Let the recursively obtained proof be $p_e_n : r_e_n (e_0 ' space dots space e_n ') space (e_0 space dots space e_n)$, and thus $e_0 ' space dots space e_n '$ the rewritten term. Similarly the recursive invocation $mono("Rew")_rho (Psi, e_(n+1))$ outputs $r_e_(n+1) : "relation" alpha_(n+1)$, $u : alpha_(n+1)$, $p : r_e_(n+1) space e_(n+1) space u$. $r_tau$ is again the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')$:
+
+    $#align(center + horizon)[
+      #box(width: 60%, inset: (top: 15%))[
+        $"Subrelation.subrelation" space (alpha_(n+1) -> tau) space r_e_n space (r_tau ==> r_e_(n+1)) \ space (?_s: "Subrelation" r_e_n space (r_tau ==> r_e_(n+1))) space (e_0 space dots space e_n) \ space (e_0 ' space dots space e_n ') space p_e_n space e_(n+1) space u space p_e_(n+1)$
+      ]
+      #box(width: 40%, height: 45pt)[
+        $: r_tau space & (e_0 space dots space e_n space e_(n+1)) \ & (e_0 ' space dots space e_n ' space e_(n+1) ')$
+      ]
+    ]$
+
+    *Proof Resulting from Subterm:*
+
+    Knowing that unification of $e_(n+1)$ with the left hand side of $rho$ implies that $e_0$ was not rewritten and eliminates the possibility that the proof of the rewrite on $e_0 space dots space e_n$ consists of pointwise relation chains. Thus, we know that the current proof is a yet incomplete Proper respectful chain $"Proper.proper" (alpha_0 space dots space alpha_n space tau) space (?_r_0 ==> dots ==> ?_r_n ==> r_(alpha_n -> tau)) space e_0 space e_0 ' space p_e_0 space dots space e_n space e_n ' space p_e_n$ which has the type $r_(alpha_n -> tau) space (e_0 space dots space e_n) space (e_0 ' space dots space e_n ')$ where $r_(alpha_n -> tau) : "relation" space alpha_n -> tau$ is the desired output relation. The recursive call on $mono("Subterm"_rho) (Psi, e_(n+1), )$ returns the carrier relation $r_e_(n+1) : "relation" alpha_(n+1)$, the updated term $e_(n+1) '$, and the proof $p_e_(n+1) : r_e_(n+1) space e_(n+1) space e_(n+1) '$. The algorithm then embeds the results into the current proof and returns a final proof of $r_tau space (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')$ with $r_tau$ being of type `relation` $tau$:
+
+    $#align(center + horizon)[
+      #box(width: 60%, inset: (top: 15%))[
+        $"Proper.proper" (alpha_0 space dots space alpha_n space alpha_(n+1) space tau) space \ (?_r_0 ==> dots ==> ?_r_n ==> r_e_(n+1) ==> r_tau) \ space e_0 space e_0 ' space p_e_0 space dots space e_n space e_n ' space p_e_n space e_(n+1) space e_(n+1) ' space p_e_(n+1)$
+      ]
+      #box(width: 35%, height: 53pt)[
+        $: r_tau space (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')$
+      ]
+    ]$
+
+    This case holds by our assumption *(1)*.
+
+  - *Case $e_0 space dots space e_n space e_(n+1)$ we rewrote $e_0 space dots space e_n$ and $e_(n+1)$ does not unify with $rho_"lhs"$*
+
+    *Proof Resulting from Rew*
+
+    This case is similar to the previous one as `Rew` doesn't change depending on how the proof looks. Let the relation be $r_e_n : "relation" (alpha_0 space dots space alpha_n)$. Let the proof be $p_e_n : r_e_n (e_0 ' space dots space e_n ') space (e_0 space dots space e_n)$, and $e_0 ' space dots space e_n '$ the rewritten term. The recursive invocation $mono("Rew")_rho (Psi, e_(n+1))$ outputs $r_e_(n+1) : "relation" alpha_(n+1)$, $p_e_(n+1) : r_e_(n+1) space e_(n+1) space e_(n+1)$. $r_tau$ is again the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1))$:
+
+    $#align(center + horizon)[
+      #box(width: 70%, inset: (top: 15%))[
+        $"Subrelation.subrelation" (alpha_(n+1) -> tau) space r_e_n space (r_tau ==> r_e_(n+1)) \ space (?_s : "Subrelation" r_e_n space (r_tau ==> r_e_(n+1))) space (e_0 space dots space e_n) space (e_0 ' space dots space e_n ') \ space p_e_n space e_(n+1) space e_(n+1) space p_e_(n+1)$
+      ]
+      #box(width: 30%, height: 46pt)[
+        $: r_tau space & (e_0 space dots space e_n space e_(n+1)) \ & (e_0 ' space dots space e_n ' space e_(n+1))$
+      ]
+    ]$
+
+    *Proof Resulting from Subterm*
+
+    When a previous rewrite occurrd we have to consider two sub-cases. Either the rewrite occurred on the very first argument $e_0$ and thus constructs a pointwise relation chain or some arguments of $e_1 space dots e_n$ were rewritten in which case we must consider a respectful chain.
+
+    In the case of the successful rewrite on $e_1 space dots space e_n$ we obtain the desired proof $r_tau space (e_0 space dots space e_n space e_(n+1)) space (e_0 space space e_1 ' space dots space e_n ' space e_(n+1))$ given the newly created carrier relation $r_e_(n+1) : "relation" space alpha_(n+1)$ and identity proof $p_e_(n+1) : r_e_(n+1) space e_(n+1) space e_(n+1)$:
+
+    $#align(center + horizon)[
+      #box(width: 80%, inset: (top: 15%))[
+        $"Proper.proper" (alpha_0 -> dots -> alpha_n -> "Prop") \ (?_r_0 ==> dots ==> ?_r_n ==> ?r_(n+1) ==> r_tau) \ space e_0 space (?_p : "Proper" (?_r_0 ==> dots ==> ?_r_n ==> ?r_(n+1) ==> r_tau) space e_0) \ space e_1 space e_1 ' space p_e_1 space dots space e_(n+1) space e_(n+1) ' space p_e_(n+1)$
+      ]
+      #box(width: 20%, height: 72pt)[
+        $: r_tau space & (e_0 space dots space e_n space e_(n+1)) \ & (e_0 ' space dots space e_n ' space e_(n+1))$
+      ]
+    ]$
+
+    In case of the successful rewrite on $e_0$ we obtain the desired (and per proof irrelevance equal) proof $r_tau ' space (e_0 space dots space e_(n+1)) space (e_0 ' space e_1 space dots space e_(n+1))$ given the newly created carrier relation $r_tau ' : "relation" space tau$ and the given $r_e_0$ of type `relation` $alpha_0 -> space dots space alpha_n -> tau$:
+
+    $#align(center + horizon)[
+      #box(width: 80%, inset: (top: 15%))[
+        $"Subrelation.subrelation" space (alpha_0 space dots space alpha_(n + 1) space tau) \ space r_e_0 space ("pointwiseRelation" space alpha_0 (dots ("pointwiseRelation" space alpha_(n+1) space r_tau ')dots) \ space (?_s : "Subrelation" space r_e_0 space ("pointwiseRelation" space alpha_0 (dots \ ("pointwiseRelation" alpha_(n+1) space r_tau ')dots))) space e_0 space e_0 ' space p_e_0 space e_1 space dots space e_(n+1)$
+      ]
+      #box(width: 20%, height: 72pt)[
+        $: r_tau space & (e_0 space dots space e_n space e_(n+1)) \ & (e_0 ' space dots space e_n space e_(n+1))$
+      ]
+    ]$
+
+    For completeness of this second case we must consider deeply nested additional occurances of $rho_"lhs"$ in this case, which would mean that while $e_1 space dots space e_(n+1)$ does not unify with $rho_"lhs"$ directly but may unify deeper in the term tree. As shortly mentioned during @updatedalgo we would rewrite the updated term $e_0 ' space e_1 space dots space e_(n+1)$ again in which case $e_0 '$ cannot be rewritten again (rewrite is an idempotent operation) which falls back to the first case where $e_1 space dots space e_n$ can be rewritten. We demand transitivity using a metavariable $?_T : mono("Transitive") space r_tau$ for $r_tau$ (obtained by inference from $r_tau '$) and thus obtain the final proof $e_0 ' space dots space e_n ' space e_(n+1)$ which is equal to the rewrite output by `Rew`.
+
+    Both sub-cases hold by our assumption *(1)*.
+
+  - *Case $e_0 space dots space e_n space e_(n+1)$ where $e_0 space dots space e_n$ was not rewritten and $e_(n+1)$ unifies with $rho_"lhs"$*
+
+    *Proof resulting from Rew*
+
+    Let the identity proof be $p_e_n : r_e_n space (e_0 space dots space e_n) space (e_0 space dots space e_n)$. The recursive invocation $mono("Rew")_rho (Psi, e_(n+1))$ outputs the relation $r_e_(n+1) : "relation" alpha_(n+1)$, the updated term $e_(n+1) '$, and the proof $p_e_(n+1) : r_e_(n+1) space e_(n+1) space e_(n+1) '$. $r_tau$ is the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau space (e_0 space dots space e_n space e_(n+1)) space (e_0 space dots space e_n space e_(n+1) ')$:
+
+    $#align(center + horizon)[
+      #box(width: 80%, inset: (top: 15%))[
+        $"Subrelation.subrelation" (alpha_(n+1) -> tau) space r_e_n space (r_tau ==> r_e_(n+1)) \ (?_s : "Subrelation" r_e_n space (r_tau ==> r_e_(n+1))) \ (e_0 space dots space e_n) space (e_0 space dots space e_n ) space p_e_n space e_(n+1) space e_(n+1) ' space p_e_(n+1)$
+      ]
+      #box(width: 20%, height: 50pt)[
+        $ : r_tau space & (e_0 space dots space e_n space e_(n+1)) \ & (e_0 space dots space e_n space e_(n+1) ')$
+      ]
+    ]$
+
+    *Proof Resulting from Subterm*
+
+    The subterm algorithm ignores arguments up until they can be rewritten. Thus, the application $e_0 space dots space e_n$ remains unchanged and we build the Proper constraint based of the relation $r$, the new term $e_(n+1) '$, and the proof $p : r space e_(n+1) space e_(n+1) '$ and curry all unchanged arguments $e_0 space dots space e_n$. The algorithm results in a proof for $r_tau e_0 space dots space e_(n+1) space e_0 space dots space e_(n+1) '$ with $r_tau$ of type `relation` $tau$:
+
+    $#align(center + horizon)[
+      #box(width: 60%, inset: (top: 35%))[
+        $"Proper.proper" (alpha -> tau) space (r ⟹ r_tau) space (e_0 space dots space e_n) \ ("Proper" (r ⟹ r_tau) space (e_0 space dots space e_n)) space e_(n+1) space e_(n+1) ' space p$
+      ]
+      #box(width: 40%, height: 25pt)[
+        $: r_tau space & (e_0 space dots space e_n space e_(n+1)) \ & (e_0 space dots space e_n space e_(n+1) ')$
+      ]
+    ]$
+
+    The premise *(1)* holds because both cases result in the same proof for $t != u$.
+
+  - *Case $e_0 space dots space e_n space e_(n+1)$ was not rewritten $e_0 space dots space e_n$ and $e_(n+1)$ doesn't unify with $rho_"lhs"$*
+
+    *Proof Resulting from Rew*
+
+    Let the carrier $r_e_n : "relation" space alpha_n -> tau$ identity proof be $p_e_n : r_e_n (e_0 space dots space e_n) space (e_0 space dots space e_n)$. The recursive invocation $mono("Rew")_rho (Psi, e_(n+1))$ outputs the relation $r_e_(n+1) : "relation" alpha_0$ and the second identity proof $p_e_(n+1) : r_e_(n+1) space e_(n+1) space e_(n+1)$. $r_tau$ is the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau (e_0 space dots space e_n space e_(n+1)) space (e_0 space dots space e_n space e_(n+1))$ with $r_tau$ of type `relation` $tau$:
+
+    $#align(center + horizon)[
+      #box(width: 80%, inset: (top: 15%))[
+        $"Subrelation.subrelation" (alpha_(n+1) -> dots -> tau) space r_e_n space (r_tau ==> r_e_(n+1)) space \ (?_s : "Subrelation" r_e_n space (r_tau ==> r_e_(n+1))) \ space (e_0 space dots space e_n) space (e_0 space dots space e_n) space p_e_n space e_(n+1) space e_(n+1) space p_e_(n+1)$
+      ]
+      #box(width: 20%, height: 50pt)[
+        $ : r_tau space & (e_0 space dots space e_n space e_(n+1)) \ & (e_0 space dots space e_n space e_(n+1))$
+      ]
+    ]$
+
+    *Proof Resulting from Subterm*
+
+    The subterm algorithm terminates at (line 37 in @subterm) and merely returns `identity` which holds under our assumption *(2)* and the fact that the `Rew` algorithm provides a proof of $r_tau space t space t$ in this case.
     ]
-    #box(height: 30pt, width: 1%)[
-      $: r_tau space (e_0 space e_1) space (e_0 space u)$
-    ]
-  ]$
 
-*Proof Resulting from Subterm*:\
+    To show that both algorithms result in the same rewrite of propositions we need to prove another theorem about the transition to implications.
 
-  With function argument unifying we recursively invoke $mono("Subterm"_rho) (Psi, e_0, r_tau : "relation" tau)$ and $mono("Subterm"_rho) (Psi, e_1, r_tau)$. The first is flagged `identity` and thus returns no information. The latter results in a relation $r_e_1 : "relation" alpha$, and a proof $p_e_1 : r_e_1 space e_1 space u$. The algorithm then constructs a proof of $r_tau space (e_0 space e_1) space (e_0 space u)$:
+    #theorem()[
+      If $mono("InferRel") (mono("success") space mono("Rew")_rho (Psi, t : "Prop"), t)$ for $rho : r space t space u$ provides a proof of a rewrite from $t$ to $u$ of the form $t <- u$ containing metavariables then the updated algorithm $mono("InferRel") (mono("Subterm"_rho) (Psi, t, <-), t)$ also provides a proof of a rewrite from $t$ to $u$ of the form $t <- u$ containing metavariables.
+    ] <theorem2>
 
-  $#align(center + horizon)[
-    #box(width: 80%)[
-      $"Proper.proper" (alpha → tau) space (r_e_1 ⟹ r_tau) space e_0 space \ (?_p : "Proper" (r_e_1 ⟹ r_tau) space e_0) space e_1 space u space p_e_1$
-    ]
-    #box(width: 1%, height: 40pt)[
-      $: r_tau (e_0 space e_1) space (e_0 space u)$
-    ]]$
+    #proof()[To prove that both algorithms result in the same rewrite proof can be shown with the following case distinction inside `InferRel`:
 
-Our assumption that $mono("Rew")_rho (Psi, e_0 space e_1)$ returning $r_tau space (e_0 space e_1) space (e_0 space u)$ implies $mono("Subterm"_rho) (Psi, e_0 space e_1, r_tau)$ returning $r_tau space (e_0 space e_1) space (e_0 space u)$ holds.
+- *Case `Rew` returns a proof for $r space t space u$ with $t != u$ and `Subterm` infers $r$*
 
-*Case $e_0 space e_1$ where $rho$ does not unify given $rho : r space u space u'$*
-*Proof Resulting from Rew*:\
+  In this case the `InferRel` algorithm would match the `success` branch for both rewrite results (@theorem1) and return the `Subterm` result, wich was already inferred by the assumption of this case, directly providing a proof $t <- u$. The `Rew` algorithm outputs a metavariable of type `relation Prop` which wrapped in the subrelationinference in line 8 at @infersub. Both cases result in a proof for $t <- u$.
 
-Given the outputs $r_e_0 : "relation" alpha -> tau$ and $p_e_0 : r_e_0 space e_0 space e_0$ of $mono("Rew")_rho (Psi, e_0)$ and the given outputs $r_e_1 : "relation" alpha$ and $p_e_1 : space r_e_1 space e_1 space e_1$ of $mono("Rew")_rho (Psi, e_1)$ the `Rew` algorithm combines the proofs and carrier relations into a final proof of identity $r_tau (e_0 space e_1) space (e_0 space e_1)$ under the relation $r_tau$ of type `relation` $tau$:
+- *Case `Rew` returns a proof $r space t space u$ for $t != u$ and `Subterm` cannot infer $r$*
 
-$#align(center + horizon)[
-  #box(width: 80%)[
-    $"Subrel.subrelation" (alpha → tau) space r_e_0 space (r_e_1 ⟹ r_tau) \ space (?_s : "Subrelation" r_e_0 (r_e_1 ⟹ r_tau)) space e_0 space e_0 space p_e_0 space e_1 space e_1 space p_e_1$
-  ]
-  #box(width: 1%, height: 40pt)[
-    $: r_tau space (e_0 space e_1) space (e_0 space e_1)$
-  ]
-]$
+  In this case both results are definitional equal and follow the same path in `InferRel`. Both exit at line 9 in @infersub and provide a proof for $t <- u$.
 
-*Proof Resulting from Subterm*:\
-  While `Subterm` would simply return `identity` for such a rewrite, exiting at (TODO line 37). As `Rew` returns proof of $r_tau space t space t$ this case also holds.
+- *Case `Rew` provides a proof for an identity rewrite*
 
-*Inductive case for $n + 1$ application subterms*
-
-We can now assume that we have a given application sequence where both algorithms produce the same rewrite proofs (carrier relation may still differ). Our induction hypotheses states that:
-
-$(Psi', r, e_0 ' space dots space e_n ', p : r space (e_0 space dots space e_n) space (e_0' space dots space e_n')) := mono("Rew"_rho) (Psi, e_0 space dots space e_n)$ implies:\ $(Psi'', r',e_0 ' space dots space e_n ', p' : r space (e_0 space dots e_n) space (e_0 ' space dots space e_n ')) := mono("Subterm"_rho) (Psi, e_0 space dots space e_n, r)$ if $e_0 space dots space e_n != e_0 ' space dots space e_n '$ \ and $(Psi'', mono("identity")) := mono("Subterm"_rho) (Psi, e_0 space dots space e_n, r)$ otherwise.
-
-We must now also show that:\ $(Psi', r, e_0 ' space dots space e_n ' space e_(n+1) ', p : r space (e_0 space dots e_n space e_(n+1)) space (e_0 ' space dots e_n ' space e_(n+1) ')) := mono("Rew"_rho) (Psi, e_0 space dots space e_n space e_(n+1) ')$\
-implies the following if $e_0 space dots space e_(n+1) != e_0 ' space dots space e_(n+1) '$:\
-$(Psi'', r', e_0 ' space dots space e_n ' space e_(n+1) ', p' : r' space (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')) := mono("Subterm"_rho) (Psi, e_0 space dots space e_n space e_(n+1), r)$ 
-and $(Psi'', mono("identity")) := mono("Subterm"_rho) (Psi, e_0 space dots space e_n space e_(n+1), r)$ otherwise.
-
-There are four cases for the inductive step. Either the previous sequence was an identity rewrite in which case we must divide between another identity rewrite or a successful rewrite. If the previous sequence contains a successful rewrite we also have the scenarios of another rewrite or a final identity. This differenciation is crucial to align with the Leading Identity Rewrite and Identity/Success Status optimisation.
-
-*Case $e_0 space dots space e_n space e_(n+1)$ where a rewrite occurred in $e_0 space dots space e_n$ and $e_(n+1)$ unifies with $rho_"lhs"$*
-
-*Proof Resulting from Rew*
-
-We can proof this similarly to the base case as we always treat applications binary here and read left-to-right. We know from our induction hypotheses that we obtain a single relation, proof, and rewritten term from the rewrite on $e_1 space dots space e_n$. Let the relation be $r_e_n : "relation" (alpha_0 space dots space alpha_n space tau)$. As we only consider well-formed applications and we are considering the last element of such an application we can imply that $r_e_n$ must be a an arrow type. Let the recursively obtained proof be $p_e_n : r_e_n (e_0 ' space dots space e_n ') space (e_0 space dots space e_n)$, and thus $e_0 ' space dots space e_n '$ the rewritten term. Similarly the recursive invocation $mono("Rew")_rho (Psi, e_(n+1))$ outputs $r_e_(n+1) : "relation" alpha_(n+1)$, $u : alpha_(n+1)$, $p : r_e_(n+1) space e_(n+1) space u$. $r_tau$ is again the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')$:
-
-$#align(center + horizon)[
-  #box(width: 60%, inset: (top: 15%))[
-    $"Subrelation.subrelation" (alpha_(n+1) -> tau) space r_e_n space (r_tau ==> r_e_(n+1)) \ space (?_s: "Subrelation" r_e_n space (r_tau ==> r_e_(n+1))) space (e_0 space dots space e_n) \ space (e_0 ' space dots space e_n ') space p_e_n space e_(n+1) space u space p_e_(n+1)$
-  ]
-  #box(width: 40%, height: 54pt)[
-    $: r_tau space (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')$
-  ]
-]$
-
-*Proof Resulting from Subterm*
-
-Knowing that unification of $e_(n+1)$ with the left hand side of $rho$ implies that $e_0$ was not rewritten and eliminates the possibility that the proof of the rewrite on $e_0 space dots space e_n$ consists of pointwise relation chains. Thus, we know that the current proof is a yet incomplete Proper respectful chain $"Proper.proper" (alpha_0 space dots space alpha_n space tau) space (?_r_0 ==> dots ==> ?_r_n ==> r_(alpha_n -> tau)) space e_0 space e_0 ' space p_e_0 space dots space e_n space e_n ' space p_e_n$ which has the type $r_(alpha_n -> tau) space (e_0 space dots space e_n) space (e_0 ' space dots space e_n ')$ where $r_(alpha_n -> tau) : "relation" alpha_n -> tau$ is the desired output relation. The recursive call on $mono("Subterm"_rho) (Psi, e_(n+1), )$ returns the carrier relation $r_e_(n+1) : "relation" alpha_(n+1)$, the updated term $e_(n+1) '$, and the proof $p_e_(n+1) : r_e_(n+1) space e_(n+1) space e_(n+1) '$. The algorithm then embeds the results into the current proof and returns a final proof of $r_tau space (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')$ with $r_tau$ being of type `relation` $tau$:
-
-$#align(center + horizon)[
-  #box(width: 60%, inset: (top: 15%))[
-    $"Proper.proper" (alpha_0 space dots space alpha_n space alpha_(n+1) space tau) space \ (?_r_0 ==> dots ==> ?_r_n ==> r_e_(n+1) ==> r_tau) \ space e_0 space e_0 ' space p_e_0 space dots space e_n space e_n ' space p_e_n space e_(n+1) space e_(n+1) ' space p_e_(n+1)$
-  ]
-  #box(width: 40%, height: 53pt)[
-    $: r_tau space (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')$
-  ]
-]$
-
-This case holds by our assumption TODO: index assumption cases.
-
-*Case $e_0 space dots space e_n space e_(n+1)$ where a rewrite occurred in $e_0 space dots space e_n$ and $e_(n+1)$ does not unify with $rho_"lhs"$*
-
-*Proof Resulting from Rew*
-
-This case is similar to the previous one as `Rew` doesn't change depending on how the proof looks. Let the relation be $r_e_n : "relation" (alpha_0 space dots space alpha_n)$. Let the proof be $p_e_n : r_e_n (e_0 ' space dots space e_n ') space (e_0 space dots space e_n)$, and $e_0 ' space dots space e_n '$ the rewritten term. The recursive invocation $mono("Rew")_rho (Psi, e_(n+1))$ outputs $r_e_(n+1) : "relation" alpha_(n+1)$, $p_e_(n+1) : r_e_(n+1) space e_(n+1) space e_(n+1)$. $r_tau$ is again the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1))$:
-
-$#align(center + horizon)[
-  #box(width: 60%, inset: (top: 15%))[
-    $"Subrelation.subrelation" (alpha_(n+1) -> tau) space r_e_n space (r_tau ==> r_e_(n+1)) \ space (?_s : "Subrelation" r_e_n space (r_tau ==> r_e_(n+1))) space (e_0 space dots space e_n) space (e_0 ' space dots space e_n ') \ space p_e_n space e_(n+1) space e_(n+1) space p_e_(n+1)$
-  ]
-  #box(width: 40%, height: 46pt)[
-    $: r_tau (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1))$
-  ]
-]$
-
-*Proof Resulting from Subterm*
-
-When a previous rewrite occurrd we have to consider two sub-cases. Either the rewrite occurred on the very first argument $e_0$ and thus constructs a pointwise relation chain or some arguments of $e_1 space dots e_n$ were rewritten in which case we must consider a respectful chain.
-
-In case of the successful rewrite on $e_0$ we obtain the desired proof $r_tau space (e_0 space dots space e_(n+1)) space (e_0 ' space e_1 space dots space e_(n+1))$ given the newly created carrier relation $r_tau : "relation" tau$ and the given $r_e_0$ of type `relation` $alpha_0 -> space dots space alpha_n -> tau$:
-
-$#align(center + horizon)[
-  #box(width: 80%, inset: (top: 15%))[
-    $"Subrelation.subrelation" (alpha_0 space dots space alpha_(n + 1) space tau) \ space r_e_0 space ("pointwiseRelation" alpha_0 (dots ("pointwiseRelation" alpha_(n+1) space r_tau)dots) \ space (?_s : "Subrelation" r_e_0 space ("pointwiseRelation" alpha_0 (dots ("pointwiseRelation" alpha_(n+1) space r_tau)dots))) \ space e_0 space e_0 ' space p_e_0 space e_1 space dots space e_(n+1)$
-  ]
-  #box(width: 20%, height: 65pt)[
-    $: r_tau space & (e_0 space dots space e_n space e_(n+1)) \ & (e_0 ' space dots space e_n space e_(n+1))$
-  ]
-]$
-
-In the other case we obtain the desired proof $r_tau space (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1))$ given the newly created carrier relation $r_e_(n+1) : "relation" alpha_(n+1)$ and identity proof $p_e_(n+1) : r_e_(n+1) space e_(n+1) space e_(n+1)$:
-
-$#align(center + horizon)[
-  #box(width: 80%, inset: (top: 15%))[
-    $"Proper.proper" (alpha_0 -> dots -> alpha_n -> "Prop") space (?_r_0 ==> dots ==> ?_r_n ==> ?r_(n+1) ==> r_tau) \ space e_0 space (?_p : "Proper" (?_r_0 ==> dots ==> ?_r_n ==> ?r_(n+1) ==> r_tau) space e_0) \ space e_1 space e_1 ' space p_e_1 space dots space e_(n+1) space e_(n+1) ' space p_e_(n+1)$
-  ]
-  #box(width: 20%, height: 50pt)[
-    $: r_tau space & (e_0 space dots space e_n space e_(n+1)) \ & (e_0 ' space dots space e_n ' space e_(n+1))$
-  ]
-]$
-
-Both sub-cases hold by our assumption.
-
-*Case $e_0 space dots space e_n space e_(n+1)$ where no rewrite occurred in $e_0 space dots space e_n$ and $e_(n+1)$ unifies with $rho_"lhs"$*
-
-*Proof resulting from Rew*
-
-Let the identity proof be $p_e_n : r_e_n space (e_0 space dots space e_n) space (e_0 space dots space e_n)$. The recursive invocation $mono("Rew")_rho (Psi, e_(n+1))$ outputs the relation $r_e_(n+1) : "relation" alpha_(n+1)$, the updated term $e_(n+1) '$, and the proof $p_e_(n+1) : r_e_(n+1) space e_(n+1) space e_(n+1) '$. $r_tau$ is the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau space (e_0 space dots space e_n space e_(n+1)) space (e_0 space dots space e_n space e_(n+1) ')$:
-
-$#align(center + horizon)[
-  #box(width: 80%, inset: (top: 15%))[
-    $"Subrelation.subrelation" (alpha_(n+1) -> tau) space r_e_n space (r_tau ==> r_e_(n+1)) \ (?_s : "Subrelation" r_e_n space (r_tau ==> r_e_(n+1))) \ (e_0 space dots space e_n) space (e_0 space dots space e_n ) space p_e_n space e_(n+1) space e_(n+1) ' space p_e_(n+1)$
-  ]
-  #box(width: 20%, height: 50pt)[
-    $ : r_tau space & (e_0 space dots space e_n space e_(n+1)) \ & (e_0 space dots space e_n space e_(n+1) ')$
-  ]
-]$
-
-*Proof Resulting from Subterm*
-
-The subterm algorithm ignores arguments up until they can be rewritten. Thus, the application $e_0 space dots space e_n$ remains unchanged and we build the Proper constraint based of the relation $r$, the new term $e_(n+1) '$, and the proof $p : r space e_(n+1) space e_(n+1) '$ and curry all unchanged arguments $e_0 space dots space e_n$. The algorithm results in a proof for $r_tau e_0 space dots space e_(n+1) space e_0 space dots space e_(n+1) '$ with $r_tau$ of type `relation` $tau$:
-
-$#align(center + horizon)[
-  #box(width: 60%, inset: (top: 35%))[
-    $"Proper.proper" (alpha -> tau) space (r ⟹ r_tau) space (e_0 space dots space e_n) \ ("Proper" (r ⟹ r_tau) space (e_0 space dots space e_n)) space e_(n+1) space e_(n+1) ' space p$
-  ]
-  #box(width: 40%, height: 30pt)[
-    $: r_tau space (e_0 space dots space e_n space e_(n+1)) space (e_0 space dots space e_n space e_(n+1) ')$
-  ]
-]$
-
-The premise holds by proof irrelevance.
-
-*Case $e_0 space dots space e_n space e_(n+1)$ where no rewrite occurred in $e_0 space dots space e_n$ and $e_(n+1)$ does not unify with $rho_"lhs"$*
-
-*Proof Resulting from Rew*
-
-Let the carrier $r_e_n : "relation" alpha_n -> tau$ identity proof be $p_e_n : r_e_n (e_0 space dots space e_n) space (e_0 space dots space e_n)$. The recursive invocation $mono("Rew")_rho (Psi, e_(n+1))$ outputs the relation $r_e_(n+1) : "relation" alpha_0$ and the second identity proof $p_e_(n+1) : r_e_(n+1) space e_(n+1) space e_(n+1)$. $r_tau$ is the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau (e_0 space dots space e_n space e_(n+1)) space (e_0 space dots space e_n space e_(n+1))$ with $r_tau$ of type `relation` $tau$:
-
-$#align(center + horizon)[
-  #box(width: 80%, inset: (top: 15%))[
-    $"Subrelation.subrelation" (alpha_(n+1) -> dots -> tau) space r_e_n space (r_tau ==> r_e_(n+1)) space \ (?_s : "Subrelation" r_e_n space (r_tau ==> r_e_(n+1))) \ space (e_0 space dots space e_n) space (e_0 space dots space e_n) space p_e_n space e_(n+1) space e_(n+1) space p_e_(n+1)$
-  ]
-  #box(width: 20%, height: 50pt)[
-    $ : r_tau space & (e_0 space dots space e_n space e_(n+1)) \ & (e_0 space dots space e_n space e_(n+1))$
-  ]
-
-]$
-
-*Proof Resulting from Subterm*
-
-The subterm algorithm terminates at (TODO line 37) and merely returns `identity` which holds with our assumption and the fact that the `Rew` algorithm provides a proof of $r_tau space t space t$ in this case.
-
+  Using @theorem1 we can imply that that `Subterm` returns nothing (just and identity flag) and given $t = u$ the `impl_self` theorem creates a proof of $t <- t$ which is equal to the proof $p : r space t space t$ of `Rew` that is transformed to $t <- t$ in line 8 in @infersub.
 ]
 
-To show that both algorithms result in the same rewrites we need to prove another theorem about the transition to implications.
-
-#theorem()[
-  If $mono("InferRel") (mono("Rew")_rho mono("success") (Psi, t : "Prop"), t)$ for $rho : r space t space u$ provides a proof of a rewrite from $t$ to $u$ of the form $t <- u$ containing metavariables then the updated algorithm $mono("InferRel") (mono("Subterm"_rho) (Psi, t, <-), t)$ also provides a proof of a rewrite from $t$ to $u$ of the form $t <- u$ containing metavariables.
-]
-
-#proof()[To prove that both algorithms result in the same rewrite proof can be shown with the following case distinction inside `InferRel`:
-
-*Case `Subterm` is successful and can infer the relation*
-
-In this case the `InferRel` algorithm would match the `success` branch for both rewrite results and return the `Subterm` result wich was already inferred directly providing a proof $t <- u$. The `Rew` algorithm results in TODO
-
-*Case $t$ can be rewritten to $u$ and $p' != t <- u$*
-
-In case the internal relation inference of the `Subterm` algorithm fails the proofs $p$ and $p'$ are of the same structure but contrain different relation metavariables of type `Prop`. This means the `InferRel` function treats them the same producing $"Subrelation.subrelation Prop" space ?_r space (<-) space (?_s : "Subrelation" space ?_r space (<-)) space t space u : t <- u$ for the proof based `Rew` and $"Subrelation.subrelation Prop" space ?_r ' space (<-) space (?_s' : "Subrelation" space ?_r ' space (<-)) space t space u : t <- u$ for the proof based on `Subterm`. Those are again equal by proof irrelevance.
-
-*Case $t$ can only be rewritten to $u$ if $t = u$*
-
-If there is no constructive rewrite then the optimized algorithm generates no proof and returns with an `identity` status. The `Rew` algorithm produces a proof $p : ?_r t t$ in such a case and infers it to a proof $?_s : t <- t$ in the second case of `InferRel`: $"Subrelation.subrelation Prop" space ?_r space (<-) space (?_s : "Subrelation" space ?_r space (<-)) space t space t : t <- t$ which, when applied, is equivalent to leaving $t$ unchanged as the `Subterm` algorithm would.
-]
+With the proofs for @theorem1 and @theorem2 we have shown all proofs generated by the `Rew` algorithm for a given term $t$, the `Subterm` algorithm generates proofs of the same type and thus equal proofs. When looking at the proof terms we can also observe that in every mentioned case the proof term and the constraints generated are of equal size or smaller in the `Subterm` algorithm. This has 
 
 #pagebreak()
 
-= Implementation and Proof Search
+= Implementation <Implementation>
 
-As mentioned during the Introduction we implemented both algorithms in Lean 4 focusing on the update version and compared the resulting constraints. The paper for generalised rewriting in type theory @sozeau:inria-00628904 that inspired the Coq implementation and the official Coq library for morphisms @coqmorphism mention many theorems that drastically simplify the constraints generated by the `Rew` or `Subterm` constraint generation algorithms. Both sources also rely on typeclass search. This has two advantages in Coq. Firstly, the by Haskell inspired typeclass system @casteran:hal-00702455 keeps track of all instances defined for a typeclass and allows access to those when resolving a typeclass. This is a convenient approach for users to create new instances that directly influence the proof search.
+As mentioned during the Introduction we implemented both the `Rew` and the `Subterm` algorithms in Lean 4 and compared the resulting constraints.
+
+Our implementation is closely aligned with the algorithms in @rewalgo and @subterm. To keep track of what side of a rewrite relation proof needs to unify we track a the direction mentioned in @PaperAlgo `l2r` that tells the unification which terms of a rewrite theorem $rho$ has to unify. The choice between $(<-)$ and $(->)$ is directed by the desired relation $r$ in @subterm. We also had to implement more logic for deeply nested rewrites of a function $f$ at the beginning of a application sequence. While the rewriting in Coq can usually recursively rewrite all occurances of the respective left-hand-side or right-hand-side of a rewrite theorem, it is not able to do that on functions.
+
+In order to rewrite the function of an application in Coq we have to define the according subrelation, pointwise relation, and relation constraints. Consider a rewrite theorem $rho : r space f space g$. $f$ and $g$ are of type $alpha -> mono("Prop") -> beta -> mono("Prop")$. Rewriting $f$ to $g$ in a term $f space a space (a = a) space b$ where $a$ is of type $alpha$ and $b$ of type $beta$ the Coq algorithm provides a proof e.g. with $(<-)$ as the desired relation for $f space a space (a = a) space b <- g space a space (a = a) space b$. In our `Subterm` algorithm we would enter the path starting at line 8 in @subterm and produce the accodring proof. However, when changing the term to $f space a space (f space a space (a = a) space b) space b$ Coq currently only provides a proof for $f space a space (f space a space (a = a) space b) space b <- g space a space (f space a space (a = a) space b) space b$. We can see that only the outer $f$ is rewritten by Coqs implementation. In the special case where $r$ is equality Coq applies the leibniz-equality algorithm and replaces both occurances of $f$.
+
+This inconsistancy in the Coq implementation is a crucial difference to the `Rew` algorithm which would rewrite all occurances of $f$ even when the relation is not equality. This is where we made some further changes to `Subterm` levering transitivity of implications (or open relations) as mentioned in @updatedalgo. As transitivity cannot be shown for a possibly non-transitive rewrite relation $r$ we must perform a subrelation inference to the desired relation passed as argument to `Subterm` immediately. When we operate on `Prop` directly the inferred relation is already transitive. In the other case we are in a nested call of the application case and thus work with a metavariable of type $mono("relation " tau)$ that we can force to be transitive later. This does not change our invariants as we always treat relations general enough so that it does not matter whether we work with metavariables of type $mono("relation " tau)$ or given instances of that type.
+
+Once we inferred the relation to the desired transitive relation $r$ we can perform another rewrite on the updated term $u$. In the recursive call with $u$ the first occurrence was already replaced to $g$ and we follow the procedure for application arguments starting in line 13 in @subterm. This would invoke yet another recursive invokation where $f$ is again the function rewrite. This is how we can rewrite a term, for instance $f space a space (f space a space (f space a space (mono("True")) space b) space b) space b$, directly to $g space a space (g space a space (g space a space (mono("True")) space b) space b) space b$ and thus truely generate the same rewrites that `Rew` produces. The downside of this approach is that with many occurances of $f$ we generate almost as many `Subrelation` metavariables as the `Rew` algorithm would for this example. The `Transitive` instances however are trivial to solve and can even be closed during the constraint generation as all implications are transitive.
+
+It is a common use case to perform rewrites using existing theorems such as addition communativity or `Nat.add_comm` ($forall n space m : NN, n + m = m + n$) or `Nat.right_distrib` ($forall n space m space k : NN, (n+m) dot k = n dot k + m dot k$). Both of those theorems are defined with all-quantifiers. During the execution of the constraint genration algorithm we are looking for unifications of the term $n + m$ for $rho := mono("Nat.add_comm")$ assuming a left-to-right rewrite. That means we have to go inside the $forall$-binder every time. As this information does not change during the execution we wrapped the algorithm in a reader monad containing all relevant information (the carrier relation $=$, the left-hand-side of $rho$, the right-hand-side of $rho$, the proof $rho$, and the possible metavariables for unused binder variables) about the rewriting theorem in the context.
+
+The paper for generalised rewriting in type theory @sozeau:inria-00628904 that inspired the Coq implementation and the official Coq library for morphisms @coqmorphism mention many theorems that drastically simplify the constraints generated by the `Rew` or `Subterm` constraint generation algorithms. Both sources also rely on typeclass search. This has two advantages in Coq. Firstly, the by Haskell inspired typeclass system @casteran:hal-00702455 keeps track of all instances defined for a typeclass and allows access to those when resolving a typeclass. This is a convenient approach for users to create new instances that directly influence the proof search.
 
 For instance one example mentioned in the paper @casteran:hal-00702455 defines a primitive version of sets where a set is just `Type` and `eqset`, the equivalence of sets, is thus a relation over set `SET` $->$ `SET` $->$ `Prop` and union is a function `Set` $->$ `Set` $->$ `Set`. If we want to leverage some theorems about sets for rewriting we generate proper constraints as part of the proof skeleton generation. By defining the typeclass instance $mono("instance union_proper" : mono("Proper") space (mono("eqset") ==> mono("eqset") ==> mono("eqset")) space mono("union"))$ anywhere in the code we assure that this instance is leveraged when a fitting `Proper` constraint is beding solved.
 
@@ -596,6 +609,8 @@ With goals stored efficiently we solve the syntactic holes in the rewrite proof 
 = Related Work
 
 = Conclusion
+
+
 
 #pagebreak()
 
