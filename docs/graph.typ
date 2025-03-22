@@ -260,3 +260,155 @@ digraph G {
 }
 ```, width: size, engine: "dot"
 )
+
+#let updatedgraph = (size) => raw-render(
+```dot
+digraph G {
+    node [fontname = "Arial"];
+    node [shape=plaintext];
+    
+    Final [label=<
+        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+            <TR>
+                <TD WIDTH="110" HEIGHT="30">(p → q) ∧ (p → q)</TD>
+                <TD WIDTH="300">
+                    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+                        <TR><TD HEIGHT="15">←</TD></TR>
+                        <TR><TD HEIGHT="15">p3 ≜ ?p3 (q → p) (q → q) p1 (q → p) (q → q) p2</TD></TR>
+                    </TABLE>
+                </TD>
+                <TD WIDTH="110">(q → q) ∧ (q → q)</TD>
+            </TR>
+            <TR>
+                <TD COLSPAN="3" HEIGHT="10">&#936; := {?p3, ?p1, ?r1, ?p2, ?r2}</TD>
+            </TR>
+        </TABLE>
+    >];
+    A [label=<
+        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+            <TR>
+                <TD WIDTH="60" HEIGHT="30">q → p</TD>
+                <TD WIDTH="190">
+                    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+                        <TR><TD HEIGHT="15">?r1</TD></TR>
+                        <TR><TD HEIGHT="15">p1 ≜ ?p1 p q h</TD></TR>
+                    </TABLE>
+                </TD>
+                <TD WIDTH="60">q → q</TD>
+            </TR>
+            <TR>
+                <TD COLSPAN="3" HEIGHT="10">&#936; := {?p1, ?r1}</TD>
+            </TR>
+        </TABLE>
+    >];
+    B [label=<
+        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+            <TR>
+                <TD WIDTH="40" HEIGHT="30">q → p</TD>
+                <TD WIDTH="180">
+                    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+                        <TR><TD HEIGHT="15">?r2</TD></TR>
+                        <TR><TD HEIGHT="15">p2 ≜ ?p2 p q h</TD></TR>
+                    </TABLE>
+                </TD>
+                <TD WIDTH="40">q → q</TD>
+            </TR>
+            <TR>
+                <TD COLSPAN="3" HEIGHT="10">&#936; := {?p2, ?r2}</TD>
+            </TR>
+        </TABLE>
+    >];
+    E [label=<
+        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+            <TR>
+                <TD WIDTH="10" HEIGHT="5">q</TD>
+                <TD WIDTH="10">
+                    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+                        <TR><TD HEIGHT="15">id</TD></TR>
+                    </TABLE>
+                </TD>
+            </TR>
+        </TABLE>
+    >];
+    H [label=<
+        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+            <TR>
+                <TD WIDTH="20" HEIGHT="5">→</TD>
+                <TD WIDTH="40">
+                    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+                        <TR><TD HEIGHT="15">id</TD></TR>
+                    </TABLE>
+                </TD>
+            </TR>
+        </TABLE>
+    >];
+    G [label=<
+        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+            <TR>
+                <TD WIDTH="10" HEIGHT="30">p</TD>
+                <TD WIDTH="10">
+                    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+                        <TR><TD HEIGHT="15">=</TD></TR>
+                        <TR><TD HEIGHT="15">h</TD></TR>
+                    </TABLE>
+                </TD>
+                <TD WIDTH="10">q</TD>
+            </TR>
+            <TR>
+                <TD COLSPAN="3" HEIGHT="10">&#936; := {}</TD>
+            </TR>
+        </TABLE>
+    >];
+    I [label=<
+        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+            <TR>
+                <TD WIDTH="10" HEIGHT="5">q</TD>
+                <TD WIDTH="10">
+                    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+                        <TR><TD HEIGHT="15">id</TD></TR>
+                    </TABLE>
+                </TD>
+            </TR>
+
+        </TABLE>
+    >];
+    L [label=<
+        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+            <TR>
+                <TD WIDTH="20" HEIGHT="5">→</TD>
+                <TD WIDTH="40">
+                    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+                        <TR><TD HEIGHT="5">id</TD></TR>
+                    </TABLE>
+                </TD>
+            </TR>
+        </TABLE>
+    >];
+    K [label=<
+        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
+            <TR>
+                <TD WIDTH="10" HEIGHT="30">p</TD>
+                <TD WIDTH="10">
+                    <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+                        <TR><TD HEIGHT="15">=</TD></TR>
+                        <TR><TD HEIGHT="15">h</TD></TR>
+                    </TABLE>
+                </TD>
+                <TD WIDTH="10">q</TD>
+            </TR>
+            <TR>
+                <TD COLSPAN="3" HEIGHT="5">&#936; := {}</TD>
+            </TR>
+        </TABLE>
+    >];
+    I -> B
+    K -> B
+    L -> B
+    G -> A
+    H -> A
+    E -> A
+    A -> Final
+    B -> Final
+}
+```, width: size, engine: "dot"
+)

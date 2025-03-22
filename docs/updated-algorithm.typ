@@ -1,6 +1,7 @@
 #import "@preview/algo:0.3.4": algo, i, d, comment, code
 #import "./template.typ": *
 #import "./theme.typ": *
+#import "./graph.typ": *
 = Updated Algorithm <updatedalgo>
 
 We have seen five improvements to the `Rew` algorithm for constraint and proof generation of a rewrite. We will now propose an updated algorithm that combines all mentioned optimisations. This roughly ressembles the algorithm that has evolved in the Coq core library over the last decade by combining the algorithms for leibniz-equality rewriting, rewriting under binders, generalised rewriting, and the `setoid_rewrite` module.
@@ -84,3 +85,13 @@ $|$ $sigma -> tau$ $=>$#i\
 $|$ t' $=>$#i\
   return ($Psi$, identity)
 ], caption: [Improved Algorithm for Genralised Rewriting.]) <subterm>
+
+Let us observe the invocation graph and the generated constraints that we have seen earlier for the updated version of the algorithm. In order to highlight especially the optimisation for leading identity rewrites we change the example from $(p -> q) and (p -> q)$ to $(q -> p) and (q -> p)$. This has no effect on the original `Rew` algorithm because the number of recursive calls and the amount of generated constraints would not be different. Thus, this example is still suited for a comparison.
+
+When invoking $mono("Subterm")_h (emptyset, (q -> p) and (q -> p), (<-))$ we now explicitly ask for a proof of $t <- u$. The tree in @calltreelongexample2 only has a maximum depth of three now compared to six for the previous example graph in @calltreelongexample. The proofs in each level also look smaller because the metavariables $?p 1$, $?p 2$, and $?p 3$ are of a more expressive `Proper` type.
+
+Leading identity rewrites occur in both sub-branches of the main invocation so that $?p 1$ and $?p 2$ both shrink and curry the unchanged term. This results in fewer metavariables that have to be solved by a proof search afterwards. $?p 1$ for instance could have at most six metavariables if a rewrite occurred in all three subterms. Even in that worst-case-scenario we would `Rew` would result in two more (eight) total metavariables.
+
+We can also see that we do not need the final subrelation step as seen in @calltreelongexample because we pass the expected relation down from the start. We end up with five metavariables in this example whereas the `Rew` algorithm provides 23 metavariables.
+
+#figure(updatedgraph(46em), caption: [Call-Tree of $mono("Rew"_h)(emptyset, (q -> p) and (q -> p))$.]) <calltreelongexample2>

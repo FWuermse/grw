@@ -2,3 +2,7 @@ subterm
 subrelation
 subrelations
 subgoal
+typeclass
+Coq
+provers
+subterms
