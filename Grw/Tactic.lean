@@ -1,4 +1,5 @@
 import Lean.Elab.Tactic
+import Lean.Elab.Term
 import Grw.Morphism
 import Grw.Eauto
 import Grw.PaperTactic
@@ -8,6 +9,7 @@ import Aesop
 open Lean
 open Lean.Meta
 open Lean.Elab.Tactic
+open Lean.Elab.Term
 
 set_option trace.aesop true
 set_option trace.aesop.ruleSet true
@@ -122,14 +124,13 @@ private def respectfulN (mvars : List Expr) : MetaM  Expr :=
 We use this inference function whenever we failed passing the expected relation (←) or (→).
 This can happend if the algorithm immediately unifies and returns for instance.
 -/
-private def subrelInference (p : Expr) (r : Expr) : MetaM (Expr × Expr × List MVarId) := do
-  let flipImpl ← mkAppM ``flip #[mkConst ``impl]
-  match ← inferType p with
-  | .app (.app (.app (.app (.app (.app (.const ``flip _) _) _) _) (.const ``impl _)) _) _ => pure (p, flipImpl, [])
-  | _ => do
-    let constraint ← mkFreshExprMVar <| ← mkAppM ``Subrel #[r, flipImpl]
-    let prf ← mkAppOptM ``Subrel.subrelation #[none, r, flipImpl, constraint, none, none, p]
-    pure (prf, flipImpl, [constraint.mvarId!])
+private def subrelInference (p : Expr) (r : Expr) (desiredRel : Expr) : MetaM (Expr × Expr × List MVarId) := do
+  if r == desiredRel then
+    pure (p, desiredRel, [])
+  else
+    let constraint ← mkFreshExprMVar <| ← mkAppM ``Subrel #[r, desiredRel]
+    let prf ← mkAppOptM ``Subrel.subrelation #[none, r, desiredRel, constraint, none, none, p]
+    pure (prf, desiredRel, [constraint.mvarId!])
 
 /--
 `rew` always succeeds and returns a tuple (Ψ, R, τ', p) with the output constraints, a relation R, a new term τ' and a proof p : R τ τ'. In case no rewrite happens we can just have an application of ATOM.
@@ -173,8 +174,11 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
         let (Ψ'', snd) ← subterm Ψ u desiredRel l2r (depth + 1)
         -- TODO: include both shadowed rels in psi
         if let .success res := snd then do
-          let (p₁, rel, Ψ₁) ← subrelInference p rel
-          let (p₂, _, Ψ₂) ← subrelInference res.rewPrf res.rewCar
+          let desiredRel := match desiredRel with
+          | some r => r
+          | none => rel
+          let (p₁, rel, Ψ₁) ← subrelInference p rel desiredRel
+          let (p₂, _, Ψ₂) ← subrelInference res.rewPrf res.rewCar desiredRel
           -- Invariant: all desired rels are Prop and transitive and res is of desired rel
           let tr ← mkFreshExprMVar <| ← mkAppOptM ``Transitive #[none, rel]
           let p ← mkAppOptM ``Transitive.trans #[none, none, tr, t, u, res.rewTo, p₁, p₂]
@@ -415,7 +419,7 @@ private partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : Hy
       s.restore
   return goals
 
-def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) : TacticM Unit := do
+def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) (d : Option LocalDecl) : TacticM Unit := do
   let hints := [``reflexiveProper, ``reflexiveProperProxy, ``reflexiveReflexiveProxy, ``properAndIff, ``eqProperProxy, ``flipReflexive, ``implReflexive, ``implTransitive, ``subrelationRefl, ``iffImplSubrelation, ``iffInverseImplSubrelation]
   let hints ← hints.mapM (do mkConstWithFreshMVarLevels .)
   let mut hintDB : DiscrTree Expr := DiscrTree.empty
@@ -429,9 +433,13 @@ def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) : TacticM Unit := do
   for rel in rels do
     hintDB ← hintDB.insert (← mkAppM ``relation #[.sort 0]) rel
   let _ ← dfs Ψ hintDB ρ
-  let goal ← getMainGoal
-  let subgoals ← goal.apply (← instantiateMVars prf)
-  replaceMainGoal subgoals
+  if let .some d := d then
+    let goal ← getMainGoal
+    -- TODO: how to add an fvar with `d` and `prf`
+  else
+    let goal ← getMainGoal
+    let subgoals ← goal.apply (← instantiateMVars prf)
+    replaceMainGoal subgoals
 
 private def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   let goal ← getMainGoal
@@ -439,13 +447,21 @@ private def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   replaceMainGoal subgoals
 
 declare_syntax_cat rw
-syntax ("←")? ident: rw
+syntax ("←")? ident : rw
 
-def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext do
+declare_syntax_cat rewrite
+syntax "grewrite" "[" rw,+ "]" ("at" ident)? : rewrite
+
+def algorithm (ps : TSyntax `rewrite) : TacticM Unit := withMainContext do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"algorithm") do
+  let (ps, id) ← match ps with
+  | `(rewrite| grewrite [$ps:rw,*] at $id:ident) => pure (ps, .some id.getId)
+  | `(rewrite| grewrite [$ps:rw,*]) => pure (ps, Option.none)
+  | _ => throwError "Unsupported syntax"
   let lctx ← getLCtx
   -- Confirm all passed lemmas are in the local context
   let mut ldecls : List (LocalDecl × Bool × TSyntax `rw) := []
+  let mut location : Option LocalDecl := none
   for ps' in lctx do
     for p in ps.getElems do
       let (name, l2r) ← match p with
@@ -456,25 +472,32 @@ def algorithm (ps : Syntax.TSepArray `rw ",") : TacticM Unit := withMainContext 
         ldecls := ldecls ++ [(ps', l2r, p)]
       else
         continue
+    if let .some id := id then
+      if ps'.userName == id then
+      location := ps'
   for (ldecl, l2r, stx) in ldecls do
     let goal ← getMainGoal
-    let goalType ← goal.getType
+    let goalType ← match location with
+    | none => do goal.getType
+    | some l => do inferType l.toExpr
     let Ψ := []
     let ρ ← toHypInfo ldecl.toExpr
-    let flipImpl ← mkAppM ``flip #[mkConst ``impl]
-    let (Ψ, res) ← subterm Ψ goalType flipImpl l2r 0 ρ
+    let desired : Expr ← match location with
+    | none => do mkAppM ``flip #[mkConst ``impl]
+    | some _ => do pure <| Lean.mkConst ``impl
+    let (Ψ, res) ← subterm Ψ goalType desired l2r 0 ρ
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {ldecl.userName}."
     | .fail => logError "Rewrite failed to generate constraints."
     | .success ⟨r, t, u, p, _subgoals⟩ =>
       -- TODO: set subgoals
-      let (p, r, Ψ') ← subrelInference p r
+      let (p, r, Ψ') ← subrelInference p r desired
       let Ψ := Ψ' ++ Ψ
       trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
-      search Ψ p ρ
+      search Ψ p ρ location
 
-elab "grewrite" "[" ps:rw,+ "]" : tactic =>
-  algorithm ps
+elab rw:rewrite : tactic =>
+  algorithm rw
 
 /-
 This function just mimics the rewrite algorithm and compares the output of the constraint generation algorithm with the provided constraints `ts`.
@@ -506,9 +529,9 @@ private def assertConstraints (ps : Syntax.TSepArray `rw ",") (ts : Syntax.TSepA
     | .fail => logError "Rewrite failed to generate constraints."
     | .success ⟨r, _, _, p, _subgoals⟩ =>
       -- TODO: set subgoals
-      let (_, _, Ψ') ← subrelInference p r
+      let (p, r, Ψ') ← subrelInference p r flipImpl
       let Ψ := Ψ' ++ Ψ
-      let ts ← ts.getElems.mapM (fun t => do elabTerm t.raw none)
+      let ts ← ts.getElems.mapM (fun t => do Elab.Tactic.elabTerm t.raw none)
       let Ψ ← Ψ.mapM (fun e => do e.getType)
       for (e, i) in Ψ.zipIdx do
         if ← isDefEq e <| ts.get! i then

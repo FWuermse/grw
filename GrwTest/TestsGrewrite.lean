@@ -358,3 +358,9 @@ example : Subrel r (Iff ⟹ rr) := by
   rw [respectful]
   intros a b iff
   sorry
+
+/-
+example (h₁ : a + e ≤ b + e) (h₂ : b < c) (h₃ : c ≤ d) : a + e ≤ d + e := by
+  grewrite [h₂, h₃] at h₁
+  exact h₁
+-/
