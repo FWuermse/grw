@@ -112,7 +112,7 @@
   v(5%)
   text(14pt, smallcaps("Ludwig-Maximilians-Universität München"))
   linebreak()
-  text(14pt, smallcaps("Chair of theoretical Computer Science and Theorem Proving"))
+  text(14pt, smallcaps("Chair of Theoretical Computer Science and Theorem Proving"))
   v(5%)
   image("lmu-sigillium.svg", width: 20%)
 
