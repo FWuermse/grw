@@ -37,4 +37,4 @@
 
 #pagebreak()
 
-#bibliography("refs.bib", full: true, title: "References")
+#bibliography("refs.bib", full: true, title: "References", style: "institute-of-electrical-and-electronics-engineers")
