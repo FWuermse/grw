@@ -1,13 +1,8 @@
 import Grw.Tactic
-import Grw.Eauto
 
 section Examples
 
 set_option trace.Meta.Tactic.grewrite true
-set_option trace.Meta.Tactic.eauto true
-set_option trace.Meta.Tactic.eauto.hints true
-set_option trace.Meta.Tactic.eauto.goals true
-set_option trace.Meta.Tactic.eauto.instances true
 
 macro "finish_impl" : tactic =>
   `(tactic| simp [impl, imp_self])
@@ -47,6 +42,7 @@ example {a : α} {P : (α → α) → Prop} [Proper (pointwiseRelation α r ⟹ 
 example {r : α → α → Prop} [Equiv r] : r a b → r b c → r a c := by
   intro rab rbc
   grewrite [rab]
+  assumption
   -- TODO: missing theorems for Equiv rels in proof search
   repeat sorry
 
@@ -91,20 +87,22 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) ∧ (Q → Q) → (Q → P) �
   exact finish
 
 -- Examples from Sébastien Michelland
+-- TODO add per theorems to proof search
 
-variable (α β γ: Type)
+variable (α β γ: Sort u)
 variable (Rα: relation α) (Rβ: relation β) (Rγ: relation γ)
 variable (Pα: α → Prop) (Pβ: β → Prop) (Pγ: γ → Prop)
 variable (Pαβγ: α → β → Prop)
 variable (fαβ: α → β) (fβγ: β → γ)
 variable [Proper_fαβ: Proper (Rα ⟹ Rβ) fαβ]
-variable [Proper_Pα: Proper (Rα ⟹ Iff) Pα]
+variable (Proper_Pα: Proper (Rα ⟹ Iff) Pα)
 variable [PER Rα] [PER Rβ]
 
 example (h: Rα a a') (finish: Pα a') : Pα a := by
   grewrite [h]
   -- TODO add per theorems to proof search
-  repeat sorry
+  exact finish
+  sorry
 
 -- Rewrite a PER within itself
 /- Coq constraints ✓
@@ -113,6 +111,7 @@ ProperProxy ?r x
 -/
 example (h: Rα a a') (finish: Rα a' x) : Rα a x := by
   grewrite [h]
+  exact finish
   repeat sorry
 
 /- Coq constraints: ✓
@@ -120,7 +119,8 @@ Proper (Rα ==> flip impl) (Rα x)
 -/
 example (h: Rα a a') (finish: Rα x a') : Rα x a := by
   grewrite [h]
-  repeat sorry
+  exact finish
+  sorry
 
 -- Nested function call ✓
 /- Coq constraints:
@@ -130,6 +130,7 @@ ProperProxy ?r0 x
 -/
 example (h: Rα a a') (finish: Rβ (fαβ a') x): Rβ (fαβ a) x := by
   grewrite [h]
+  exact finish
   repeat sorry
 
 -- Multiple occurrences ✓
@@ -138,7 +139,8 @@ Proper (Rα ==> Rα ==> Basics.flip Basics.impl) Rα
 -/
 example (h: Rα a a') (finish: Rα a' a'): Rα a a := by
   grewrite [h]
-  repeat sorry
+  exact finish
+  sorry
 
 -- More complex selection ✓
 /- Coq constraints:
@@ -154,22 +156,23 @@ Proper (?r1 ==> ?r6 ==> ?r7) and
 Proper (?r0 ==> ?r7 ==> ?r8) and
 Proper (?r ==> ?r8 ==> Basics.flip Basics.impl) and
 -/
-example (h: Rα a a') (finish: Pα a'): Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a := by
+example (h: Rα a a') (finish: Pα a' ∧ Pα a' ∧ Pα a' ∧ Pα a' ∧ Pα a' ∧ Pα a') : Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a := by
   grewrite [h]
-  repeat sorry
+  exact finish
 
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
   intros P Q H
   grewrite [H]
-  repeat sorry
+  finish_impl
 
 --Proof: Subrel.subrelation (impl Q) (impl Q) (Subrel.subrelation impl impl Proper.proper Q Q Proper.proper) P Q H
 
 -- Examples from the Paper
-example : ∀ P Q : Prop, (P ↔ Q) → (Q → P ) ∧ (Q → P ) := by
+example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
-  repeat sorry
+  simp_all
+  finish_impl
 
 variable {SET : Type}
 variable {eqset : relation SET}
@@ -181,17 +184,14 @@ variable {unionEmpty : ∀ s, eqset (union s empty) s}
 variable {unionIdem : ∀ s, eqset (union s s) s}
 variable {unionCompat : ∀ s s', eqset s s' → ∀ t t', eqset t t' → eqset (union s t) (union s' t')}
 
-@[grw]
+@[grewrite]
 instance unionProper : Proper (eqset ⟹ eqset ⟹ eqset) union := ⟨unionCompat⟩
-
--- Not ideal :P
-set_option maxHeartbeats 500000
 
 example : ∀ s, eqset (union (union s empty) s) s := by
   intro s
   grewrite [unionEmpty]
   grewrite [unionIdem]
-  --apply Reflexive.rfl
+  apply Reflexive.rfl
   repeat sorry
 
 
@@ -200,25 +200,27 @@ Some Coq constraints for problems:
 -/
 
 -- Produces: Subrel Iff (flip impl) ✓
-example : ∀ P Q : Prop, (P ↔ Q) → Q → P := by
+example (s : Subrel Iff (flip impl)) : ∀ P Q : Prop, (P ↔ Q) → Q → P := by
   intros P Q H HQ
   grewrite [H]
-  repeat sorry
+  exact HQ
 
 /- Coq constraints ✓
 Proper (r ==> flip impl) (f c b)
 -/
-example (a b c : α) (r : relation α) (h: r a b) (f: α → α → α → Prop) : f c b a := by
+example (a b c : α) (r : relation α) (h: r a b) (f: α → α → α → Prop) (finish: f c b b) : f c b a := by
   grewrite [h]
-  repeat sorry
+  exact finish
+  sorry
 
 /- Coq constraints ✓
 Proper (?r0 ==> ?r ==> flip impl) f
 ProperProxy ?r0 b
 ProperProxy ?r c
 -/
-example (r : relation α) (h : r a x) (f: α → β → γ → Prop) : f a b c := by
+example (r : relation α) (h : r a x) (f: α → β → γ → Prop) (finish : f x b c): f a b c := by
   grewrite [h]
+  exact finish
   repeat sorry
 
 example (r : relation α) (h : r a x) (f: α → β → γ → α → Prop) : f a b c a := by
@@ -270,7 +272,7 @@ Produces:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P):= by
   intros P Q H
   grewrite [H]
-  repeat sorry
+  finish_impl
 
 /- ✓
 Produces:
@@ -281,7 +283,7 @@ Produces:
 example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
   intros P Q H
   grewrite [H]
-  repeat sorry
+  finish_impl
 
 /- ✓
 Produces:
@@ -294,7 +296,7 @@ Produces:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) → (Q → P) := by
   intros P Q H
   grewrite [H]
-  repeat sorry
+  finish_impl
 
 /- ✓
 Produces:
@@ -307,7 +309,7 @@ Produces:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
-  repeat sorry
+  apply And.intro <;> finish_impl
 
 /-
 Produces
@@ -320,7 +322,7 @@ Produces
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → Q) := by
   intros P Q H
   grewrite [H]
-  repeat sorry
+  apply And.intro <;> finish_impl
 
 /- ✓
 Produces
@@ -331,13 +333,13 @@ Produces
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
-  repeat sorry
+  apply And.intro <;> finish_impl
 
 -- No rewrite possible on first two proofs.
-example (r₁ : relation Prop) (r₂ : relation Prop) (h₁ : r₁ P Q) (h₂ : r₂ P Q) (H : Prop) (h₃ : r₁ H P) : H := by
+example (r₁ : relation Prop) (r₂ : relation Prop) (s : Subrel r₁ (flip impl)) (h₁ : r₁ P Q) (h₂ : r₂ P Q) (H : Prop) (h₃ : r₁ H P) (finish: P) : H := by
   -- show error only on h₁ and h₂
   grewrite [h₁, ← h₂, h₃]
-  repeat sorry
+  exact finish
 
 -- Reverse rewrite with `←`
 /- Coq constraints:
@@ -346,7 +348,7 @@ TBD
 example {r : α → α → Prop} [Equiv r] : r b a → r b c → r a c := by
   intro rab rbc
   -- TODO. make rhs and lhs abstract everywhere not just in unify.
-  --grewrite [← rab]
+  grewrite [← rab]
   repeat sorry
 
 end Examples

@@ -5,6 +5,9 @@ defaultTargets = ["Grw"]
 [[lean_lib]]
 name = "Grw"
 
+[[lean_lib]]
+name = "GrwTest"
+
 [[require]]
 name = "batteries"
 git = "https://github.com/leanprover-community/batteries"

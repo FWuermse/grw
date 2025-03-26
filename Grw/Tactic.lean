@@ -1,20 +1,21 @@
 import Lean.Elab.Tactic
 import Lean.Elab.Term
+import Grw.Attribute
 import Grw.Morphism
 import Grw.Eauto
 import Grw.PaperTactic
 import Batteries
-import Aesop
 
 open Lean
 open Lean.Meta
 open Lean.Elab.Tactic
 open Lean.Elab.Term
-
-set_option trace.aesop true
-set_option trace.aesop.ruleSet true
+open Attribute
 
 namespace Tactic
+
+initialize
+  Lean.registerTraceClass `Meta.Tactic.grewrite
 
 /--
 The result of a rewrite.
@@ -263,26 +264,6 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
     trace[Meta.Tactic.grewrite] "{srep depth} |ATOM {t}"
     pure (Ψ, .id)
 
-def aesopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
-  withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"proofSearch") do
-  trace[Meta.Tactic.grewrite] "{Ψ}"
-    let mut progress := true
-    while progress do
-      -- Bruteforce approach just for testing purposes.
-      progress := false
-      for goal in Ψ do
-        try
-          let rs ← Aesop.Frontend.getGlobalRuleSet `grewrite
-          let options : Aesop.Options := {strategy := Aesop.Strategy.depthFirst, enableSimp := false, enableUnfold := false, useDefaultSimpSet := false}
-          let rs ← Aesop.mkLocalRuleSet #[rs] (← options.toOptions')
-          let _ ← Aesop.search goal (ruleSet? := .some rs) (options := options)
-          progress := progress || true;
-        catch _ =>
-          pure ()
-  let goal ← getMainGoal
-  let subgoals ← goal.apply (← instantiateMVars p)
-  replaceMainGoal subgoals
-
 def eautoSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   -- Try to solve the constraints with `typeclasses_eauto with grewrite`
   let success ← Eauto.eautoMain Ψ #[`grewrite] true
@@ -292,31 +273,6 @@ def eautoSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
   let goal ← getMainGoal
   let subgoals ← goal.apply (← instantiateMVars p)
   replaceMainGoal subgoals
-
-macro "pphint1" : tactic =>
-  `(tactic| first
-    | apply eqProperProxy
-    | apply reflexiveProperProxy)
-
-macro "pphint2" : tactic =>
-  `(tactic| first
-    | apply hasAssignableMVar sorry
-    | apply properProperProxy)
-
-macro "solveRespectful" : tactic =>
-  `(tactic| all_goals
-    (rw [respectful]
-     intro _ _ H
-     simp_all
-     try rw [flip, impl]))
-
-macro "solveRespectfulN" : tactic =>
-  `(tactic| repeat solveRespectful)
-
-macro "solveProper" : tactic =>
-  `(tactic|
-    (apply Proper.mk
-     solveRespectfulN))
 
 /--
 See (https://github.com/coq/coq/pull/13969)[Coq]
@@ -373,7 +329,7 @@ private def tryTactic (subgoals : List MVarId) (name : String) (tactic : MVarId 
       trace[Meta.Tactic.grewrite]m!"No progress with {name}: {← goal.getType}"
   return subgoals
 
-private partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : HypInfo) : TacticM (List MVarId) := do
+private partial def dfs (goals : List MVarId) (hintDB : DiscrTree Name) (ρ : HypInfo) : TacticM (List MVarId) := do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"search") do
   for goal in goals do
     let mut subgoals := []
@@ -385,14 +341,15 @@ private partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : Hy
       trace[Meta.Tactic.grewrite]m!"✅️ assumption solved goal {goalType}"
     catch _ =>
       trace[Meta.Tactic.grewrite]m!"❌️ Assumption on {goalType} failed"
-    let matchingHints ← hintDB.getMatch goalType
+    let matchingHintNames ← hintDB.getMatch goalType
     /-
     TODO: store tactics based on what they could possibly simplify (e.G. Proper for solveProper)
     Check mathlib for tactic registration. (see Lean.registerTagAttribute, persistantEnvExtension)
     Env extension as discrtree (check simp attribute)
     serialise Discrtree keys
     -/
-    for matchingHint in matchingHints do
+    for name in matchingHintNames do
+      let matchingHint ← mkConstWithFreshMVarLevels name
       trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {matchingHint}"
       try
         subgoals ← goal.apply matchingHint
@@ -402,7 +359,19 @@ private partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : Hy
           trace[Meta.Tactic.grewrite]"🏁 no more open goals"
           return subgoals
       catch e =>
-        trace[Meta.Tactic.grewrite]m!"❌️ Could not apply hint"
+        trace[Meta.Tactic.grewrite]m!"\t❌️ Could not apply hint"
+        continue
+    if (← goal.getType) == (← inferType ρ.rel) then
+      trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {ρ.rel}"
+      try
+        subgoals ← goal.apply ρ.rel
+        trace[Meta.Tactic.grewrite]m!"✅️ applied hint {ρ.rel}"
+        subgoals ← dfs (goals.filter (. != goal) ++ subgoals) hintDB ρ
+        if subgoals.isEmpty then
+          trace[Meta.Tactic.grewrite]"🏁 no more open goals"
+          return subgoals
+      catch e =>
+        trace[Meta.Tactic.grewrite]m!"\t❌️ Could not apply hint"
         continue
     -- tactics:
     subgoals ← tryTactic subgoals "unfoldSRT" (unfoldSymRflTran)
@@ -420,22 +389,21 @@ private partial def dfs (goals : List MVarId) (hintDB : DiscrTree Expr) (ρ : Hy
   return goals
 
 def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) (d : Option LocalDecl) : TacticM Unit := do
-  let hints := [``reflexiveProper, ``reflexiveProperProxy, ``reflexiveReflexiveProxy, ``properAndIff, ``eqProperProxy, ``flipReflexive, ``implReflexive, ``implTransitive, ``subrelationRefl, ``iffImplSubrelation, ``iffInverseImplSubrelation]
-  let hints ← hints.mapM (do mkConstWithFreshMVarLevels .)
-  let mut hintDB : DiscrTree Expr := DiscrTree.empty
-  for hint in hints do
-    let type ← inferType hint
-    let (fvars, _, type) ← forallMetaTelescope type
-    hintDB ← hintDB.insert type hint
+  let env ← getEnv
+  let mut hintDB := dbEx.getState env
   -- See (https://github.com/coq/coq/pull/13969)[Coq]
+  -- Outsource
   let rels := [``Iff, ``impl, ``Eq, ``flip]
-  let rels ← rels.mapM (do mkConstWithFreshMVarLevels .)
   for rel in rels do
     hintDB ← hintDB.insert (← mkAppM ``relation #[.sort 0]) rel
   let _ ← dfs Ψ hintDB ρ
   if let .some d := d then
     let goal ← getMainGoal
-    -- TODO: how to add an fvar with `d` and `prf`
+    let newExpr := Expr.app prf d.toExpr
+    let (_, goal) ← goal.assertHypotheses #[{userName := d.userName, type := ← inferType newExpr, value := newExpr}]
+    -- Check other APIs to preserve sequence (may me part of the Hypotheses APIs)
+    let goal ← goal.tryClear d.fvarId
+    replaceMainGoal [goal]
   else
     let goal ← getMainGoal
     let subgoals ← goal.apply (← instantiateMVars prf)
@@ -493,7 +461,6 @@ def algorithm (ps : TSyntax `rewrite) : TacticM Unit := withMainContext do
       -- TODO: set subgoals
       let (p, r, Ψ') ← subrelInference p r desired
       let Ψ := Ψ' ++ Ψ
-      trace[Meta.Tactic.grewrite]"\n{t} ↝ {u}\nrel: {r}\nproof: {p}\nconstraints: \n{← Ψ.mapM fun mv => mv.getType}\n"
       search Ψ p ρ location
 
 elab rw:rewrite : tactic =>
@@ -538,6 +505,10 @@ private def assertConstraints (ps : Syntax.TSepArray `rw ",") (ts : Syntax.TSepA
           continue
         else
           throwError "Constraints don't match at idx: {i}, {e} ≠ {ts.get! i}"
+      -- Check if p can be applied
+      let _ ← withoutModifyingState do
+        let _ ← goal.apply p
+        -- TODO: maybe check resulting type of first goal with some given "expected" type
 
 elab "assert_constraints" "[" ps:rw,+ "]" t:term,+ ";": tactic =>
   assertConstraints ps t

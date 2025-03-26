@@ -1,132 +1,136 @@
-import Aesop
-import Grw.Eauto
-import Grw.AesopRuleset
+import Grw.Attribute
 
-macro "grw" : attr => `(attr| aesop unsafe 90% apply (rule_sets := [grewrite]))
+--attribute [grewrite] Iff for existing theorems
+--set_option trace.Meta.Tactic.grewrite.hints true
 
-initialize
-  Lean.registerTraceClass `Meta.Tactic.grewrite
-
-@[grw]
+@[grewrite]
 abbrev relation (α : Sort u) := α → α → Prop
 
-@[grw]
+@[grewrite]
 def impl (α β : Prop) : Prop := α → β
 
-@[grw]
+@[grewrite]
 def all (α : Sort u) (p : α -> Prop) :=
   ∀x, p x
 
-@[grw]
+@[grewrite]
 def relation.inverse {α : Sort u} (r : relation α) : α → α → Prop :=
 λ x y => r y x
 
 postfix:max "⁻¹" => relation.inverse
 
-@[grw]
+@[grewrite]
 class Reflexive {α : Sort u} (rel : relation α) where
   rfl : ∀ x, rel x x
 
-@[grw]
+@[grewrite]
 class Symmetric {α : Sort u} (rel : relation α) where
   symm : ∀ x y, rel x y → rel⁻¹ x y
 
-@[grw]
+@[grewrite]
 class Transitive {α : Sort u} (rel : relation α) where
   trans : ∀ x y z, rel x y → rel y z → rel x z
 
-@[grw]
+@[grewrite]
 class PER {α: Sort u} (R: relation α) extends Symmetric R, Transitive R
 
-@[grw]
+@[grewrite]
 class Equiv {α: Sort u} (R: relation α) extends PER R, Reflexive R
 
-@[grw]
-instance flipReflexive {α : Sort u} {r : relation α} : Reflexive r → Reflexive r⁻¹ := by
+@[grewrite]
+theorem flipReflexive {α : Sort u} {r : relation α} : Reflexive r → Reflexive r⁻¹ := by
   intro r
   constructor
   intro x
   rw [relation.inverse]
   apply Reflexive.rfl x
 
-@[grw]
-instance implReflexive : Reflexive impl :=
+@[grewrite]
+theorem implReflexive : Reflexive impl :=
   Reflexive.mk fun _ => id
 
-@[grw]
-instance implTransitive : Transitive impl :=
+@[grewrite]
+theorem implTransitive : Transitive impl :=
   Transitive.mk fun _ _ _ pqr pq => pq ∘ pqr
 
-@[grw]
+@[grewrite]
 class Subrel {α : Sort u} (q r : relation α) : Prop where
   subrelation : Subrelation q r
 
-@[grw]
-instance subrelationRefl {α : Sort u} {r : relation α} : Subrel r r :=
+@[grewrite]
+theorem subrelationRefl {α : Sort u} {r : relation α} : Subrel r r :=
   ⟨id⟩
 
-@[grw]
-instance iffImplSubrelation : Subrel Iff impl :=
+@[grewrite]
+theorem iffImplSubrelation : Subrel Iff impl :=
   ⟨(propext . ▸ .)⟩
 
-@[grw]
-instance iffInverseImplSubrelation : Subrel Iff impl⁻¹ :=
+@[grewrite]
+theorem iffInverseImplSubrelation : Subrel Iff impl⁻¹ :=
   ⟨(propext . ▸ .)⟩
 
-@[grw]
+@[grewrite]
 class Proper {α : Sort u} (r : relation α) (m : α) where
   proper : r m m
 
 -- This is a Coq hack taking an identical class that works with different instance
-@[grw]
+@[grewrite]
 class ProperProxy {α : Sort u} (r : relation α) (m : α) where
   proxy : r m m
 
-@[grw]
+@[grewrite]
 class ReflexiveProxy {α : Sort u} (r : relation α) where
   reflexiveProxy : ∀ x, r x x
 
-@[grw]
+@[grewrite]
 theorem eqProperProxy (x : α) : ReflexiveProxy r → ProperProxy (@Eq α) x := fun _ => ⟨rfl⟩
 
-@[grw]
+@[grewrite]
 theorem properProperProxy x : Proper r x → ProperProxy r x := fun h => ⟨h.proper⟩
 
-@[grw]
+@[grewrite]
 theorem reflexiveProperProxy {α : Sort u} {r : relation α} (x : α) : ReflexiveProxy r → ProperProxy r x := fun h => ⟨h.reflexiveProxy x⟩
 
-@[grw]
+@[grewrite]
 theorem reflexiveReflexiveProxy {α : Sort u} {r : relation α} : Reflexive r → ReflexiveProxy r := fun h => ⟨h.rfl⟩
 
-@[aesop unsafe 100% apply (rule_sets := [grewrite])]
-instance reflexiveProper {α : Sort u} {r : relation α} (x : α) : Reflexive r → Proper r x :=
+@[grewrite]
+theorem reflexiveProper {α : Sort u} {r : relation α} (x : α) : Reflexive r → Proper r x :=
   fun h => ⟨h.rfl x⟩
 
-@[grw]
+@[grewrite]
 def respectful {α : Sort u} {β : Sort v} (r : relation α) (r' : relation β) : relation (α → β) :=
   fun f g => ∀ x y, r x y → r' (f x) (g y)
 
-@[grw]
+@[grewrite]
 theorem contrapositive {a b : Prop} :
   (a → b) → ¬ b → ¬ a :=
   fun hab hnb ha => hnb (hab ha)
 
-@[grw]
-instance notIffMorphism : Proper (respectful Iff Iff) Not :=
+@[grewrite]
+theorem notIffMorphism : Proper (respectful Iff Iff) Not :=
   Proper.mk fun _ _ x => Iff.intro (contrapositive x.mpr) (contrapositive x.mp)
 
 notation:55 r " ⟹ " r' => respectful r r'
 notation:55 r " ⟶ " r' => respectful r⁻¹ r'
 
-@[grw]
-instance contraposedMorphism : Proper (impl ⟶ impl) Not := by
+@[grewrite]
+theorem contraposedMorphism : Proper (impl ⟶ impl) Not := by
   apply Proper.mk
   intro a b f na
   rw [relation.inverse, Not] at *
   apply contrapositive (f) (na)
 
-@[grw]
-instance transMorphism : Transitive r → Proper (r ⟶ r ⟹ impl) r := by
+@[grewrite]
+theorem iffImpl : Proper (r ⟹ Iff) a → Proper (r ⟹ flip impl) a := by
+  intro p
+  constructor
+  unfold respectful flip impl
+  intros x y rxy ay
+  apply (p.proper x y rxy).mpr ay
+
+@[grewrite]
+theorem transMorphism : Transitive r → Proper (r ⟶ r ⟹ impl) r := by
   intro ht
   apply Proper.mk
   intro a b iab c d r r'
@@ -136,25 +140,25 @@ instance transMorphism : Transitive r → Proper (r ⟶ r ⟹ impl) r := by
   apply ht.trans <;>
   assumption
 
-@[grw]
+@[grewrite]
 def pointwiseRelation (α : Sort u) {β : Sort u} (r : relation β) : relation (α → β) :=
   fun f g => ∀ a, r (f a) (g a)
 
-@[grw]
+@[grewrite]
 def forallRelation {α: Sort u} {P: α → Sort u}
     (sig: forall a, relation (P a)): relation (forall x, P x) :=
   fun f g => forall a, sig a (f a) (g a)
 
-@[grw]
-instance flipProper : Proper (rα ⟹ rβ ⟹ rφ) f → Proper (rβ ⟹ rα ⟹ rφ) (flip f) := by
+@[grewrite]
+theorem flipProper : Proper (rα ⟹ rβ ⟹ rφ) f → Proper (rβ ⟹ rα ⟹ rφ) (flip f) := by
   intro mor
   apply Proper.mk
   intro b₁ b₂ rb a₁ a₂ ra
   apply mor.proper
   repeat assumption
 
-@[grw]
-instance respectfulSubrelation : Subrel r₂ r₁ → Subrel s₁ s₂ → Subrel (r₁ ⟹ s₁) (r₂ ⟹ s₂) := by
+@[grewrite]
+theorem respectfulSubrelation : Subrel r₂ r₁ → Subrel s₁ s₂ → Subrel (r₁ ⟹ s₁) (r₂ ⟹ s₂) := by
   intro rs ss
   apply Subrel.mk
   intro f f' p x y rxy
@@ -162,8 +166,8 @@ instance respectfulSubrelation : Subrel r₂ r₁ → Subrel s₁ s₂ → Subre
   apply p
   exact rs.subrelation rxy
 
-@[grw]
-instance : Proper (Subrel ⟹ Subrel) (@pointwiseRelation α β) := by
+@[grewrite]
+theorem properPointwise : Proper (Subrel ⟹ Subrel) (@pointwiseRelation α β) := by
   apply Proper.mk
   intro rb rb' sr
   apply Subrel.mk
@@ -171,20 +175,20 @@ instance : Proper (Subrel ⟹ Subrel) (@pointwiseRelation α β) := by
   apply sr.subrelation
   apply hfg
 
-@[grw]
-instance subrelationPointwise α : @Subrel β r r' → Subrel (pointwiseRelation α r) (pointwiseRelation α r') := by
+@[grewrite]
+theorem subrelationPointwise α : @Subrel β r r' → Subrel (pointwiseRelation α r) (pointwiseRelation α r') := by
   intro sub
   apply Subrel.mk
   intro f g pr a
   apply sub.subrelation
   apply pr
 
-@[grw]
+@[grewrite]
 def relationEquivalence : relation (relation α) :=
   Eq
 
-@[grw]
-instance proper (α : Sort u) : Proper (relationEquivalence ⟹ Eq ⟹ Iff) (@Proper α) := by
+@[grewrite]
+theorem proper (α : Sort u) : Proper (relationEquivalence ⟹ Eq ⟹ Iff) (@Proper α) := by
   apply Proper.mk
   intro r r' hreq a b heq
   apply Iff.intro
@@ -201,21 +205,22 @@ instance proper (α : Sort u) : Proper (relationEquivalence ⟹ Eq ⟹ Iff) (@Pr
 
 theorem subrelationProper : Proper r₁ m → Subrel r₁ r₂ → Proper r₂ m := fun p sr => ⟨sr.subrelation p.proper⟩
 
-@[aesop unsafe 10% apply (rule_sets := [grewrite])]
-instance «partial» (h₁ : Proper (r ⟹ r') m) (h₂ : Proper r x) : Proper r' (m x) := by
+--only apply with 10% prio
+@[grewrite]
+theorem «partial» (h₁ : Proper (r ⟹ r') m) (h₂ : Proper r x) : Proper r' (m x) := by
   constructor
   replace h₁ := h₁.proper
   replace h₂ := h₂.proper
   rw [respectful] at h₁
   exact h₁ x x h₂
 
-@[grw]
-instance properInverse : Proper r m → Proper r⁻¹ m := fun p => ⟨p.proper⟩
+@[grewrite]
+theorem properInverse : Proper r m → Proper r⁻¹ m := fun p => ⟨p.proper⟩
 
-@[grw]
+@[grewrite]
 theorem inverseInvol α (r : relation α) : r⁻¹⁻¹ = r := rfl
 
-@[grw]
+@[grewrite]
 theorem inverseArrow α (ra : relation α) β (rb : relation β) : (ra ⟹ rb)⁻¹ = ra⁻¹ ⟹ rb⁻¹ := by
   funext f g
   apply propext
@@ -224,14 +229,14 @@ theorem inverseArrow α (ra : relation α) β (rb : relation β) : (ra ⟹ rb)�
     apply h
     exact hra
 
-@[grw]
+@[grewrite]
 class Normalizes {α} (m m' : relation α) where
   normalizes : m = m'⁻¹
 
-@[grw]
+@[grewrite]
 theorem norm1 α r : @Normalizes α r (r⁻¹) := Normalizes.mk rfl
 
-@[grw]
+@[grewrite]
 theorem norm2 : @Normalizes β r₀ r₁ → @Normalizes β u₀ u₁ → Normalizes (r₀ ⟹ u₀) (r₁ ⟹ u₁) := by
   intro n₁ n₂
   constructor
@@ -245,14 +250,14 @@ theorem norm2 : @Normalizes β r₀ r₁ → @Normalizes β u₀ u₁ → Normal
 
 /- Instances Sébastien Michelland added -/
 
-@[grw]
-instance subrelationEqRespectfulEqEq {α β: Sort u} : Subrel Eq (@Eq α ⟹ @Eq β) := by
+@[grewrite]
+theorem subrelationEqRespectfulEqEq {α β: Sort u} : Subrel Eq (@Eq α ⟹ @Eq β) := by
   constructor
   intro f g feqg a b aeqb
   simp_all
 
-@[grw]
-instance properPointwiseRelation {α β: Sort u}:
+@[grewrite]
+theorem properPointwiseRelation {α β: Sort u}:
     Proper (Subrel ⟹ Subrel) (@pointwiseRelation α β) where
   proper _ _ h := by
     constructor
@@ -260,8 +265,8 @@ instance properPointwiseRelation {α β: Sort u}:
     apply h.subrelation
     apply hp
 
-@[grw]
-instance: Equiv (@Eq α) where
+@[grewrite]
+theorem equivofeq : Equiv (@Eq α) where
   rfl  := Eq.refl
   symm  := by
     intros
@@ -272,8 +277,8 @@ instance: Equiv (@Eq α) where
     apply Eq.trans
     repeat assumption
 
-@[grw]
-instance: Equiv Iff where
+@[grewrite]
+theorem equivofIff : Equiv Iff where
   rfl  := Iff.refl
   symm  := by
     intros
@@ -284,8 +289,8 @@ instance: Equiv Iff where
     apply Iff.trans
     repeat assumption
 
-@[grw]
-instance {r : relation α} : PER r → Proper (r ⟹ r ⟹ Iff) r := by
+@[grewrite]
+theorem PERProper {r : relation α} : PER r → Proper (r ⟹ r ⟹ Iff) r := by
   intro per
   constructor
   intro a b rab c d rcd
@@ -304,8 +309,8 @@ instance {r : relation α} : PER r → Proper (r ⟹ r ⟹ Iff) r := by
   apply per.symm
   assumption
 
-@[grw]
-instance {r : relation α} : PER r → Proper (r ⟹ Eq ⟹ Iff) r := by
+@[grewrite]
+theorem PERProperEq {r : relation α} : PER r → Proper (r ⟹ Eq ⟹ Iff) r := by
   intro per
   constructor
   intro a b rab c d hcd
@@ -322,8 +327,8 @@ instance {r : relation α} : PER r → Proper (r ⟹ Eq ⟹ Iff) r := by
   rw [← hcd] at rbd
   assumption
 
-@[grw]
-instance {r : relation α} : PER r → Proper (Eq ⟹ r ⟹ Iff) r := by
+@[grewrite]
+theorem PERProperIff {r : relation α} : PER r → Proper (Eq ⟹ r ⟹ Iff) r := by
   intro per
   constructor
   intro a b hab c d rcd
@@ -339,8 +344,8 @@ instance {r : relation α} : PER r → Proper (Eq ⟹ r ⟹ Iff) r := by
   apply per.symm
   assumption
 
-@[grw]
-instance properFlip : Proper (Rα ⟹ Rβ ⟹ Rγ) f → Proper (Rβ ⟹ Rα ⟹ Rγ) (flip f) := by
+@[grewrite]
+theorem properFlip : Proper (Rα ⟹ Rβ ⟹ Rγ) f → Proper (Rβ ⟹ Rα ⟹ Rγ) (flip f) := by
   intro pa
   constructor
   rw [respectful]
@@ -349,8 +354,8 @@ instance properFlip : Proper (Rα ⟹ Rβ ⟹ Rγ) f → Proper (Rβ ⟹ Rα ⟹
   intro _ _ h_a
   apply pa.proper _ _ h_a _ _ h_b
 
-@[grw]
-instance subrelEq : Reflexive R → Subrel Eq R := by
+@[grewrite]
+theorem subrelEq : Reflexive R → Subrel Eq R := by
   intro r
   constructor
   rw [Subrelation]
@@ -358,8 +363,8 @@ instance subrelEq : Reflexive R → Subrel Eq R := by
   rw [h]
   apply r.rfl
 
-@[grw]
-instance respectfulPER (hr₁ : PER r₁) (hr₂ : PER r₂) : PER (r₁ ⟹ r₂) where
+@[grewrite]
+theorem respectfulPER (hr₁ : PER r₁) (hr₂ : PER r₂) : PER (r₁ ⟹ r₂) where
   symm h g hg x y h₁ := by
     apply hr₂.symm
     apply hg
@@ -374,29 +379,22 @@ instance respectfulPER (hr₁ : PER r₁) (hr₂ : PER r₂) : PER (r₁ ⟹ r�
     apply Symmetric.symm
     repeat assumption
 
-@[grw]
-instance subrelIffImpl: Subrel Iff impl where
+@[grewrite]
+theorem subrelIffImpl: Subrel Iff impl where
   subrelation h := h.mp
 
-@[grw]
-instance subrelIffFlipImpl: Subrel Iff (flip impl) where
+@[grewrite]
+theorem subrelIffFlipImpl: Subrel Iff (flip impl) where
   subrelation h := h.mpr
 
-@[grw]
-instance properAndIff: Proper (Iff ⟹ Iff ⟹ Iff) And :=
+@[grewrite]
+theorem properAndIff: Proper (Iff ⟹ Iff ⟹ Iff) And :=
   ⟨fun _ _ hx _ _ hy => by simp [hx, hy]⟩
 
-@[grw]
-instance properOrIff: Proper (Iff ⟹ Iff ⟹ Iff) Or :=
+@[grewrite]
+theorem properOrIff: Proper (Iff ⟹ Iff ⟹ Iff) Or :=
   ⟨fun _ _ hx _ _ hy => by simp [hx, hy]⟩
 
-@[grw]
-instance properNotIff: Proper (Iff ⟹ Iff) Not :=
+@[grewrite]
+theorem properNotIff: Proper (Iff ⟹ Iff) Not :=
   ⟨fun _ _ h => by simp [h]⟩
-
-eauto_create_db grewrite
-eauto_hint reflexiveProper : grewrite
-eauto_hint reflexiveProperProxy : grewrite
-eauto_hint reflexiveReflexiveProxy : grewrite
-eauto_hint Reflexive.rfl : grewrite
-eauto_hint properAndIff : grewrite
