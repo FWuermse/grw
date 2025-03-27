@@ -314,7 +314,7 @@ variable {unionEmpty : ∀ s, eqset (union s empty) s}
 variable {unionIdem : ∀ s, eqset (union s s) s}
 variable {unionCompat : ∀ s s', eqset s s' → ∀ t t', eqset t t' → eqset (union s t) (union s' t')}
 
-@[grw]
+@[grwerite]
 instance unionProper : Proper (eqset ⟹ eqset ⟹ eqset) union := ⟨unionCompat⟩
 
 example : ∀ s, eqset (union (union s empty) s) s := by
