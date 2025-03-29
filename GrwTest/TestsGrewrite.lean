@@ -4,18 +4,15 @@ section Examples
 
 set_option trace.Meta.Tactic.grewrite true
 
-macro "finish_impl" : tactic =>
-  `(tactic| simp [impl, imp_self])
-
 example : ∀ P Q : Prop , (P ↔ Q) → (Q → P) := by
   intro P Q h
   grewrite [h]
-  finish_impl
+  simp
 
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   intro P Q h
   grewrite [h]
-  finish_impl
+  simp
 
 example {r : relation Prop} [hp : Subrel r (flip impl)] : r a b → b → a := by
   intro rab hb
@@ -163,7 +160,7 @@ example (h: Rα a a') (finish: Pα a' ∧ Pα a' ∧ Pα a' ∧ Pα a' ∧ Pα a
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
   intros P Q H
   grewrite [H]
-  finish_impl
+  simp
 
 --Proof: Subrel.subrelation (impl Q) (impl Q) (Subrel.subrelation impl impl Proper.proper Q Q Proper.proper) P Q H
 
@@ -172,7 +169,6 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
   simp_all
-  finish_impl
 
 variable {SET : Type}
 variable {eqset : relation SET}
@@ -184,7 +180,7 @@ variable {unionEmpty : ∀ s, eqset (union s empty) s}
 variable {unionIdem : ∀ s, eqset (union s s) s}
 variable {unionCompat : ∀ s s', eqset s s' → ∀ t t', eqset t t' → eqset (union s t) (union s' t')}
 
-@[grewrite]
+@[grw]
 instance unionProper : Proper (eqset ⟹ eqset ⟹ eqset) union := ⟨unionCompat⟩
 
 example : ∀ s, eqset (union (union s empty) s) s := by
@@ -272,7 +268,7 @@ Produces:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P):= by
   intros P Q H
   grewrite [H]
-  finish_impl
+  simp
 
 /- ✓
 Produces:
@@ -283,7 +279,7 @@ Produces:
 example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
   intros P Q H
   grewrite [H]
-  finish_impl
+  simp
 
 /- ✓
 Produces:
@@ -296,7 +292,7 @@ Produces:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) → (Q → P) := by
   intros P Q H
   grewrite [H]
-  finish_impl
+  simp
 
 /- ✓
 Produces:
@@ -309,7 +305,7 @@ Produces:
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
-  apply And.intro <;> finish_impl
+  apply And.intro <;> simp
 
 /-
 Produces
@@ -322,7 +318,7 @@ Produces
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → Q) := by
   intros P Q H
   grewrite [H]
-  apply And.intro <;> finish_impl
+  apply And.intro <;> simp
 
 /- ✓
 Produces
@@ -333,10 +329,10 @@ Produces
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) ∧ (Q → P) := by
   intros P Q H
   grewrite [H]
-  apply And.intro <;> finish_impl
+  apply And.intro <;> simp
 
 -- No rewrite possible on first two proofs.
-example (r₁ : relation Prop) (r₂ : relation Prop) (s : Subrel r₁ (flip impl)) (h₁ : r₁ P Q) (h₂ : r₂ P Q) (H : Prop) (h₃ : r₁ H P) (finish: P) : H := by
+example (r₁ : relation Prop) (r₂ : relation Prop) (s : Subrel r₁ (flip impl)) (h₁ : r₁ P Q) (h₂ : r₂ P Q) (H : Prop) (h₃ : r₁ H P) (finish: Q) : H := by
   -- show error only on h₁ and h₂
   grewrite [h₁, ← h₂, h₃]
   exact finish
@@ -352,17 +348,3 @@ example {r : α → α → Prop} [Equiv r] : r b a → r b c → r a c := by
   repeat sorry
 
 end Examples
-
-example : Subrel r (Iff ⟹ rr) := by
-  constructor
-  rw [Subrelation]
-  intros x y hr
-  rw [respectful]
-  intros a b iff
-  sorry
-
-/-
-example (h₁ : a + e ≤ b + e) (h₂ : b < c) (h₃ : c ≤ d) : a + e ≤ d + e := by
-  grewrite [h₂, h₃] at h₁
-  exact h₁
--/
