@@ -1,8 +1,9 @@
 import Grw.Tactic
+import Grw.Attribute
 
 set_option trace.Meta.Tactic.grewrite true
 
-def setEq : List α → List α → Prop :=
+def setEq {α : Type} : List α → List α → Prop :=
   fun l1 l2 => ∀ x, x ∈ l1 <-> x ∈ l2
 
 instance setEqEquivalence {α : Type} : Equivalence (@setEq α) where
@@ -30,7 +31,7 @@ instance setEqEquivalence {α : Type} : Equivalence (@setEq α) where
 def addElem {α : Type} (x : α) (l : List α) : List α :=
   x :: l
 
-@[grewrite]
+@[grw]
 theorem addElemProper {α : Type} (x : α) : @Proper (List α → List α) (setEq ⟹ setEq) (addElem x) := by
   constructor
   unfold respectful
@@ -50,4 +51,6 @@ theorem addElemProper {α : Type} (x : α) : @Proper (List α → List α) (setE
 theorem rewriteExample : setEq [1,2,3] [3,2,1] → setEq (addElem 4 [1,2,3]) (addElem 4 [3,2,1]) := by
   intro h
   grewrite [h]
+  unfold setEq
+  simp
   repeat sorry
