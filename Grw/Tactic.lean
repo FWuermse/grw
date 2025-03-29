@@ -190,12 +190,12 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
           let proxy ← mkFreshExprMVar <| ← mkAppM ``ProperProxy #[rel, t]
           let proxyPrf ← mkAppOptM ``ProperProxy.proxy #[none, none, none, proxy]
           respectfulList := respectfulList ++ [rel]
-          Ψ := Ψ ∪ [proxy.mvarId!, rel.mvarId!]
+          Ψ := Ψ ++ [rel.mvarId!, proxy.mvarId!]
           prfArgs := prfArgs ++ [proxyPrf]
           u := .app u t
         | .success rew =>
           respectfulList := respectfulList ++ [rew.rewCar]
-          Ψ := Ψ' ∪ Ψ
+          Ψ := Ψ ++ Ψ'
           prfArgs := prfArgs ++ [rew.rewPrf]
           u := .app u rew.rewTo
           rewMVars := rew.rewMVars ++ rewMVars
@@ -213,9 +213,9 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
       let prfs := prfArgs.toArray.flatMap (#[none, none, .some .])
       let p ← mkAppOptM ``Proper.proper <| #[none, none, none, prp] ++ prfs
       if rel.isMVar then
-        Ψ := Ψ ∪ [rel.mvarId!]
+        Ψ := Ψ ++ [rel.mvarId!]
       trace[Meta.Tactic.grewrite] "{srep depth} |APP {t}"
-      return (Ψ ∪ [prp.mvarId!], .success ⟨respectfulList.getLast!, t, u, p, rewMVars⟩)
+      return (Ψ ++ [prp.mvarId!], .success ⟨respectfulList.getLast!, t, u, p, rewMVars⟩)
     else
       pure (Ψ, .id)
   | .lam n T _b i => do
@@ -247,7 +247,7 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
           | throwError "Rewrite of `all λ x ↦ y` resulted in a different (thus wrong) type."
         let u := .forallE n T b i
         pure (Ψ, .success ⟨S, t, u, p, subgoals⟩)
-      | .fail => return (Ψ , .fail)
+      | .fail => return (Ψ, .fail)
   | _ => do
     trace[Meta.Tactic.grewrite] "{srep depth} |ATOM {t}"
     pure (Ψ, .id)
@@ -307,6 +307,16 @@ private def tryTactic (subgoals : List MVarId) (name : String) (tactic : MVarId 
       trace[Meta.Tactic.grewrite]m!"No progress with {name}: {← goal.getType}"
   return subgoals
 
+private def tryHyp (goal : MVarId) (hyp : Expr) : MetaM <| Except MVarId <| List MVarId := do
+  let mut subgoals := []
+  try
+    subgoals ← goal.apply hyp
+    trace[Meta.Tactic.grewrite]m!"✅️ applied hint {hyp}"
+    return .ok subgoals
+  catch e =>
+    trace[Meta.Tactic.grewrite]m!"\t❌️ Could not apply hint: \n\t {e.toMessageData}"
+    return .error goal
+
 private def relCmp (a b : Expr) : MetaM Bool := do
   let T₁ ← match a with
   | .app (.const ``relation _) T => pure T
@@ -326,54 +336,23 @@ private def relCmp (a b : Expr) : MetaM Bool := do
   | _ => return false
   return T₁ == T₂
 
-private partial def dfs (goals : List MVarId) (hintDB : DiscrTree Name) (ρ : HypInfo) : TacticM (List MVarId) := do
-  withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"search") do
+private def tryClose (goals : List MVarId) : TacticM Bool := do
+  for goal in goals do
+    try
+      goal.assumption
+      trace[Meta.Tactic.grewrite]m!"✅️ assumption solved goal {← goal.getType}"
+    catch _ =>
+      trace[Meta.Tactic.grewrite]m!"❌️ Assumption on {← goal.getType} failed"
   if goals.isEmpty then
     trace[Meta.Tactic.grewrite]"🏁 no more open goals"
-    return goals
-  let goal := goals.get! 0
-  let mut subgoals := []
-  let goalType ← goal.getType
-  trace[Meta.Tactic.grewrite]m!"trying goal: {goalType}"
-  let mut s ← saveState
-  try
-    goal.assumption
-    trace[Meta.Tactic.grewrite]m!"✅️ assumption solved goal {goalType}"
-  catch _ =>
-    trace[Meta.Tactic.grewrite]m!"❌️ Assumption on {goalType} failed"
-  let matchingHintNames ← hintDB.getMatch goalType
-    /-
-    TODO: store tactics based on what they could possibly simplify (e.G. Proper for solveProper)
-    Check mathlib for tactic registration. (see Lean.registerTagAttribute, persistantEnvExtension)
-    Env extension as discrtree (check simp attribute)
-    serialise Discrtree keys
-    -/
-  if ← relCmp goalType (← inferType ρ.rel) then
-    trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {ρ.rel}"
-    try
-      subgoals ← goal.apply ρ.rel
-      trace[Meta.Tactic.grewrite]m!"✅️ applied hint {ρ.rel}"
-      subgoals ← dfs (goals.filter (. != goal) ++ subgoals) hintDB ρ
-      if subgoals.isEmpty then
-        trace[Meta.Tactic.grewrite]"🏁 no more open goals"
-    catch e =>
-      trace[Meta.Tactic.grewrite]m!"\t❌️ Could not apply hint"
-      subgoals ← dfs (goals.filter (. != goal)) hintDB ρ
-  for name in matchingHintNames do
-    let matchingHint ← mkConstWithFreshMVarLevels name
-    trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {matchingHint}"
-    try
-      subgoals ← goal.apply matchingHint
-      trace[Meta.Tactic.grewrite]m!"✅️ applied hint {matchingHint}"
-      subgoals ← dfs (goals.filter (. != goal) ++ subgoals) hintDB ρ
-      if subgoals.isEmpty then
-        trace[Meta.Tactic.grewrite]"🏁 no more open goals"
-        return subgoals
-    catch e =>
-      trace[Meta.Tactic.grewrite]m!"\t❌️ Could not apply hint"
-      subgoals ← dfs (goals.filter (. != goal)) hintDB ρ
-      continue
-  -- tactics:
+    return true
+  /-
+  TODO: store tactics based on what they could possibly simplify (e.G. Proper for solveProper)
+  Check mathlib for tactic registration. (see Lean.registerTagAttribute, persistantEnvExtension)
+  Env extension as discrtree (check simp attribute)
+  serialise Discrtree keys
+  -/
+  let mut subgoals := goals
   subgoals ← tryTactic subgoals "unfoldSRT" (unfoldSymRflTran)
   subgoals ← tryTactic subgoals "⟹...⟹" (solveRespectfulN)
   subgoals ← tryTactic subgoals "unfold flip" (unfoldName ``flip)
@@ -383,11 +362,53 @@ private partial def dfs (goals : List MVarId) (hintDB : DiscrTree Name) (ρ : Hy
     match ← simpAll g sc with
     | (.some r, _) => pure r
     | (_, _) => throwError "simp_all made no progress"
-  if ← goal.isAssignedOrDelayedAssigned then
-    return subgoals
+  if subgoals.isEmpty then
+    trace[Meta.Tactic.grewrite]"🏁 no more open goals"
+    return true
   else
-    s := { s with term.meta.core.infoState := (← Elab.MonadInfoTree.getInfoState), term.meta.core.messages := (← getThe Core.State).messages }
-    s.restore
+    return false
+
+private partial def dfs (goals : List MVarId) (hintDB : DiscrTree Name) (ρ : HypInfo) : TacticM (List MVarId) := do
+  withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"search") do
+  if goals.isEmpty then
+    return []
+  let mut (next, rest) := goals.splitAt 1
+  let goal := next.get! 0
+  let goalType ← goal.getType
+  trace[Meta.Tactic.grewrite]m!"trying goal: {goalType}"
+  let matchingHintNames ← hintDB.getMatch goalType
+  let mut subgoals := []
+  -- If we're trying to solve a goal of the type of ρ.rel it may be useful to try ρ.rel
+  if ← relCmp goalType (← inferType ρ.rel) then
+    let s ← saveState
+    let res ← tryHyp goal ρ.rel
+    match res with
+    | .ok sg =>
+      subgoals ← dfs (sg ++ rest) hintDB ρ
+      if (← tryClose subgoals) then
+        return []
+      else if ← goal.isAssignedOrDelayedAssigned then
+        subgoals ← dfs (sg ++ rest) hintDB ρ
+      else
+        restoreState s
+    | .error _ => pure ()
+  for name in matchingHintNames do
+    let s ← saveState
+    let matchingHint ← mkConstWithFreshMVarLevels name
+    trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {matchingHint}"
+    let res ← tryHyp goal matchingHint
+    match res with
+    | .ok sg =>
+      subgoals ← dfs (sg ++ rest) hintDB ρ
+      if (← tryClose subgoals) then
+        return []
+      else if ← goal.isAssignedOrDelayedAssigned then
+        subgoals ← dfs (sg ++ rest) hintDB ρ
+      else
+        restoreState s
+    | .error _ => pure ()
+  subgoals ← dfs (rest) hintDB ρ
+  let _ ← tryClose subgoals
   return goals
 
 def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) (d : Option LocalDecl) : TacticM Unit := do
@@ -408,7 +429,10 @@ def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) (d : Option LocalDecl)
     replaceMainGoal [goal]
   else
     let goal ← getMainGoal
-    let subgoals ← goal.apply (← instantiateMVars prf)
+    let mut subgoals ← goal.apply (← instantiateMVars prf)
+    subgoals ← tryTactic subgoals "unfold flip" (unfoldName ``flip)
+    subgoals ← tryTactic subgoals "unfold impl" (unfoldName ``impl)
+    subgoals ← tryTactic subgoals "unfold impl" (unfoldName ``all)
     replaceMainGoal subgoals
 
 private def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
