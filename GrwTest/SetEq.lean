@@ -53,4 +53,6 @@ theorem rewriteExample : setEq [1,2,3] [3,2,1] → setEq (addElem 4 [1,2,3]) (ad
   grewrite [h]
   unfold setEq
   simp
-  repeat sorry
+  . sorry
+  . sorry
+  simp [setEq]

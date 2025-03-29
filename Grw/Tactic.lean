@@ -368,47 +368,55 @@ private def tryClose (goals : List MVarId) : TacticM Bool := do
   else
     return false
 
-private partial def dfs (goals : List MVarId) (hintDB : DiscrTree Name) (ρ : HypInfo) : TacticM (List MVarId) := do
+partial def dfs (goals : List MVarId) (hintDB : DiscrTree Name) (ρ : HypInfo) : TacticM (List MVarId) := do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"search") do
-  if goals.isEmpty then
-    return []
-  let mut (next, rest) := goals.splitAt 1
-  let goal := next.get! 0
-  let goalType ← goal.getType
-  trace[Meta.Tactic.grewrite]m!"trying goal: {goalType}"
-  let matchingHintNames ← hintDB.getMatch goalType
-  let mut subgoals := []
-  -- If we're trying to solve a goal of the type of ρ.rel it may be useful to try ρ.rel
-  if ← relCmp goalType (← inferType ρ.rel) then
-    let s ← saveState
-    let res ← tryHyp goal ρ.rel
-    match res with
-    | .ok sg =>
-      subgoals ← dfs (sg ++ rest) hintDB ρ
-      if (← tryClose subgoals) then
-        return []
-      else if ← goal.isAssignedOrDelayedAssigned then
-        subgoals ← dfs (sg ++ rest) hintDB ρ
-      else
-        restoreState s
-    | .error _ => pure ()
-  for name in matchingHintNames do
-    let s ← saveState
-    let matchingHint ← mkConstWithFreshMVarLevels name
-    trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {matchingHint}"
-    let res ← tryHyp goal matchingHint
-    match res with
-    | .ok sg =>
-      subgoals ← dfs (sg ++ rest) hintDB ρ
-      if (← tryClose subgoals) then
-        return []
-      else if ← goal.isAssignedOrDelayedAssigned then
-        subgoals ← dfs (sg ++ rest) hintDB ρ
-      else
-        restoreState s
-    | .error _ => pure ()
-  subgoals ← dfs (rest) hintDB ρ
-  let _ ← tryClose subgoals
+  for goal in goals do
+    let mut subgoals := []
+    let goalType ← goal.getType
+    trace[Meta.Tactic.grewrite]m!"trying goal: {goalType}"
+    let mut s ← saveState
+    try
+      goal.assumption
+      trace[Meta.Tactic.grewrite]m!"✅️ assumption solved goal {goalType}"
+    catch _ =>
+      trace[Meta.Tactic.grewrite]m!"❌️ Assumption on {goalType} failed"
+    let matchingHints ← hintDB.getMatch goalType
+    if ← relCmp goalType (← inferType ρ.rel) then
+      try
+        subgoals ← goal.apply ρ.rel
+        trace[Meta.Tactic.grewrite]m!"✅️ applied hint {ρ.rel}"
+        subgoals ← dfs (goals.filter (. != goal) ++ subgoals) hintDB ρ
+        if subgoals.isEmpty then
+          trace[Meta.Tactic.grewrite]"🏁 no more open goals"
+          return subgoals
+      catch e =>
+        trace[Meta.Tactic.grewrite]m!"❌️ Could not apply hint"
+        continue
+    for matchingHint in matchingHints do
+      trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {matchingHint}"
+      try
+        subgoals ← goal.apply (← mkConstWithFreshMVarLevels matchingHint)
+        trace[Meta.Tactic.grewrite]m!"✅️ applied hint {matchingHint}"
+        subgoals ← dfs (goals.filter (. != goal) ++ subgoals) hintDB ρ
+        if subgoals.isEmpty then
+          trace[Meta.Tactic.grewrite]"🏁 no more open goals"
+          return subgoals
+      catch e =>
+        trace[Meta.Tactic.grewrite]m!"❌️ Could not apply hint"
+        continue
+    -- tactics:
+    subgoals ← tryTactic subgoals "unfoldSRT" (unfoldSymRflTran)
+    subgoals ← tryTactic subgoals "⟹...⟹" (solveRespectfulN)
+    subgoals ← tryTactic subgoals "unfold flip" (unfoldName ``flip)
+    subgoals ← tryTactic subgoals "unfold impl" (unfoldName ``impl)
+    let sc ← Simp.Context.mkDefault
+    subgoals ← tryTactic subgoals "simp_all" fun g => do
+      match ← simpAll g sc with
+      | (.some r, _) => pure r
+      | (_, _) => throwError "simp_all made no progress"
+    if !(← goal.isAssignedOrDelayedAssigned) then
+      s := { s with term.meta.core.infoState := (← Elab.MonadInfoTree.getInfoState), term.meta.core.messages := (← getThe Core.State).messages }
+      s.restore
   return goals
 
 def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) (d : Option LocalDecl) : TacticM Unit := do
@@ -478,9 +486,11 @@ def algorithm (ps : TSyntax `rewrite) : TacticM Unit := withMainContext do
     | some l => do inferType l.toExpr
     let Ψ := []
     let ρ ← toHypInfo expr
-    let desired : Expr ← match location with
-    | none => do mkAppM ``flip #[mkConst ``impl]
-    | some _ => do pure <| Lean.mkConst ``impl
+    let desired : Expr ← match (location, l2r) with
+    | (none, true) => do mkAppM ``flip #[mkConst ``impl]
+    | (some _, true) => do pure <| Lean.mkConst ``impl
+    | (none, false) => do pure <| Lean.mkConst ``impl
+    | (some _, false) => do mkAppM ``flip #[mkConst ``impl]
     let (Ψ, res) ← subterm Ψ goalType desired l2r 0 ρ
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {name}."
