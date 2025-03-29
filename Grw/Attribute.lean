@@ -34,7 +34,7 @@ private def convertTheoremToHint (name : Name) : MetaM Hint := do
 -- For relations create new Attribute (e.g. grewrite_rel) but reuse dbEx
 
 initialize registerBuiltinAttribute {
-  name := `grewrite
+  name := `grw
   descr := "Register theorems to be used in the proof search for the grewrite tactic"
   add := fun name _ kind => do
     let (hint, _) ← convertTheoremToHint name |>.run
