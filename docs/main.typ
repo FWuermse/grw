@@ -14,6 +14,7 @@
   advisor: "Jannis Limperg",
   supervisor: "Prof. Dr. Jasmin Blanchette"
 )
+#show heading: set block(below: 1.5em, above: 2em)
 
 #set page(numbering : "1")
 

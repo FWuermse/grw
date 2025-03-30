@@ -4,7 +4,92 @@
 #import "@preview/algo:0.3.4": algo, i, d, comment, code
 = Algorithm for Genralised Rewriting <PaperAlgo>
 
-The core idea of the approach for rewriting proposed in @sozeau:inria-00628904 is to break down generalised rewriting into two parts. The first part is an algorithm that generates a large proof skeleton for the rewrite leveraging `Proper`, `respectful`, and `Subrelation` as seen above. In previous examples, we have seeen that while we know what types such a proof must have, we don't always know the actual instances of the `Proper` or `Subrelation` classes. They each only have a single constructor. We know that a proof for a `Subrelation` term must be constructed with `Subrelation.subrelation`. This means a proof that for a given relation $q$ and a given relation $r$, all $x$ and $y$ must satisfy $q space x space y -> r space x space y$ and similarly for `Proper` proofs. We may, however, not always know the proof for $forall x y, q space x space y -> r space x space y$. This is why the algorithm uses metavariables for those instances and for some sub-expressions. For instance, a proof skeleton for a simple atomic term $p : mono("Prop")$ and a proof $h : r space p space q$ would be a proof $mono("Subrelation.subrelation (Prop)") space r space (<-) space ?_m space p space q space h$. Notice that $?_m$ is a metavariable of type $mono("Subrelation" space r space (<-))$ which unfolds to $forall x y, r space x space y -> (x <- y)$. The application $?_m space p space q space h$ gives us the desired rewrite. The assignment for the metavariable $?_m$ is unknown and left as a hole in this proof. With more nested terms, this algorithm collects multiple unassigned metavariables.
+We briefly mentioned that the literature algorithm about generalised rewriting consists of two parts. To understand the proof and constraint generation section of that algorithm we will start by introducing Lean expressions, explain Coq's morphism framework, and finally provide the algorithm specification.
+
+== Lean Terms
+
+In this section we will clarify the terms goal, subgoal, Lean term and constraint by explaining the nature of Lean expressions.
+
+A term (or expression) in Lean 4 can be represented as any of the following variants `const`, `sort`, `fvar`, `mvar`, `app`, `lam`, `bvar`, `forallE`, `letE`, `lit`, `mdata`, or `proj`. They all represent a constructior of Lean's `Expr` type that represents expressions.
+
+Each of the below listed constructors can create an `Expr` type.
+
+- Expr.const refers to constants such as definitions or theorems that have a unique name.
+- Expr.sort is the level of types where `sort 0` represents propositions and $mono("sort" n)$ lives in type $mono("sort" n + 1)$.
+- Expr.fvar is Lean's representation for free variables in the local context such as hypotheses
+- Expr.mvar is a metavariable, a syntactic hole in a lean expression
+- Expr.app represents function application e.g.: $f(g(e))$ in Lean
+- Expr.lam is the expression-type for anonymous function or lambda expressions in Lean
+- Expr.bvar is a variable bound by a lambda expression or all-quantifier
+- Expr.forallE represents dependent and non-dependent function types
+- Expr.letE are let bindings inside do-blocks in Lean
+- Expr.lit is any natural number or string literal in lean
+- Expr.mdata is the expression for annotations
+- Expr.proj is the notation for NTuple-types in Lean
+
+Expressions of type `mvar` are the kind of Lean expressions that also represent the goals and subgoals that we want to prove. In Lean's tactic mode we always have one active main goal that we need to solve first. Metavariables are called existential variables in Coq and are a crucial part of the following algorithm. The constraints we mentioned earlier are synonymous for metavariables. However, during the rewriting process we usually inspect them prior to becoming goals for the user to solve.
+
+Metavariables of a certain type $tau$ can be assigned with any value $Gamma tack e : tau$ in the current context $Gamma$ (hypotheses, theorems, etc.). When we assign a metavariable that represents a goal, we also close the goal. Another way to leverage metavariables is to use them as placeholders in any given Lean term when the value is unknown at the time of creation. It is also possible to share a metavariable $?_x$ across multiple terms as seen in this example. Assigning such a metavariable with a value $v$ also assigns every occurrence of $?_x$ with $v$. Whenever we choose variable names starting with a question mark in this thesis, we refer to metavariables.
+
+== Proof Strategy for Rewriting
+
+We mentioned that every rewrite must be justified by a proof and the rewrite tactic must provide that proof. When we want to prove a goal $P space t : mono("Prop")$ and have a hypotheses $h$ of type $r space t space u$ given $r$ is a relation $alpha arrow alpha arrow mono("Prop")$, we can prove the statement given we have the additional information that $P$ is preserved by $r$. In order to generate a rewrite proof for that, $r$ must be an equivalence relation or imply the implication ($<-$). Essentially, this means ($<-$) is a direct subrelation of $r$ or a transitive subrelation. When those hypotheses are in place, the proof is straight forward for this minimal example. By Lean's definition of subrelations, it suffices to show $r space t space ?_t$ and $?_t$. We can assign $?_t$ with $u$ obtain a proof for the rewrite $t <- u$.
+
+#definition("Subrelation")[
+  ```lean
+  class Subrelation (q r : α → α → Prop) :=
+    subrelation : ∀ {x y}, q x y → r x y
+  ```
+]
+
+We can see that in performing a rewrite always boils down to finding a proof that justifies the rewrite and applying that proof. Even the `rewrite` tactic already supported by Lean for rewriting with equalities merely generates proofs for a rewrite and applies them. The rewrite proof we have just observed leverages right-to-left implication to justify a valid rewrite. Similarly, a proof term of a left-to-right implication can directly be applied to a hypotheses. Equality is also a way to justify rewrites by levering the `rewrite` tactic already in place for lean. However, for the remaining thesis we will stick with implications as our choice for justifying rewrites.
+
+== Coq's Morphism Framework
+
+Before we take a look at the rewriting algorithm we want to define how Coq and also our Lean implementation uses morphisms to achieve successful rewrites. The following section specifies what we mean when a function is preserved by a relation.
+
+The morphism framework introduced by Mattheiu Sozeau @sozeau:inria-00628904 consists of `respectful` and `Proper` definitions that can construct proofs for arbitrary terms using a syntax-directed algorithm. The `Proper` definition in @ProperDef takes a relation $r$ and an element $m$ in that relation demanding reflexivity of that element. Whenever this definition holds, we call $m$ a `Proper` element of $r$ meaning that $m$ is a morphism for $r$. The `respectful` definition seen in @respectfulDef denoted as ($==>$) is Coqs notion for signatures. This definition can produce very general implications for a variety of functions. For instance, the contrapositive theorem $forall x y : mono("Prop"), (x -> y) -> (not y -> not y)$ can be stated as $((->) ==> (<-)) space (not) space (not)$. We can even simplify the contrapositive theorem by leveraging `Proper` and `respectful` with $"Proper" ((->) ==> (<-)) space (not)$. We can see this by unfolding the definitions:
+
+#align(center)[
+  #box()[
+    $
+      & mono("Proper") ((->) ==> (<-)) space (not) &\
+      & ((->) ==> (<-)) space (not) space (not) & ["Proper constructor"] \
+      & (mono("respectful") (->) space (<-)) space (not) space (not) & ["unfold notation \"" ==> "\"]" \
+      & (lambda space f space g mapsto forall x y, (x -> y) -> (f space x <- g space y)) space (not) space (not) & ["unfold respectful"]\
+      & ∀ x y : mono("Prop"), (x -> y) → (¬x <- ¬y) & [beta-"reduction"] \
+    $
+  ]
+]
+
+We can use the same infrastructure to specify the above rewrite from $P space t$ to $P space u$ in a more general way. We asume that we have the same hypotheses $h : r space t space u$. When $r$ preserves $P$ we can create (and prove) a hypotheses $h_p$ of type $mono("Proper") (r ==> (<-)) space P$. When we follow the same steps as for the contrapositive calculation we end up with a transformed hypotheses $h_p '$ of type $forall x y, (r space x space y) -> (P x <- P y)$. When a hypotheses contains an all-quantifier over $x$ and $y$, we can instaciate the two variables. If we do so with $t$ and $u$ we obtain a modified hypotheses $r space t space u -> (P space t <- P space u)$. When we apply $h$ to this hypotheses we obtain a proof of a rewrite from $P space t$ to $P space u$.
+
+
+#definition("Proper")[
+  ```lean
+  class Proper (r : relation α) (m : α) where
+    proper : r m m
+  ```
+] <ProperDef>
+
+#definition("respectful")[
+  ```lean
+  def respectful (r : relation α) (r' : relation β) : relation (α → β) :=
+    λ f g ↦ ∀ x y, r x y → r' (f x) (g y)
+  ```
+] <respectfulDef>
+
+To convince you that the same procedure can also be used to generate rewrites for other terms we want to explore another example where the term we want to rewrite occurs inside a conjuction. Let $p$ and $q$ be of type $mono("Prop")$ and $h$ be a hypotheses of type $p = q$. We also assume that we have a hypotheses $p$ that states that Conjunctions are preserved by the equality relation. Thus, $p$ is of type $"Proper" ((=) ==> (<->) ==> (<-)) space (and)$. It translates to $forall x y, x = y -> forall x' y', x' <-> y' -> (x and x' <- y and y')$. When instantiating the variables in $p$, for instance with $p, q, h : p = q, q, q, (h' : b <-> b)$, we would obtain a proof for $(p and q <- q and q)$.
+
+In the second example we can see a nested occurrence of `respectful`. When unfolding the definitions we interpret it left-to-right as seen above and implicitly read paranthesis like so: $((=) ==> ((<->) ==> (<-)))$. We will refer to such nested respectful arrows as respectful chain and to the arguments as elements of that chain in the remaining chapters. The reason we use two respectful arrows here is to match the desired type of the second `Proper` argument $(and)$. Conjunctions in Lean have the type $mono("Prop") -> mono("Prop") -> mono("Prop")$. Each relation in a respectful chain must have the type of the corresponding type in the function. All three elements of this respectful chain are relations over proposition and thus the conjuction's type is an arrow type of three propositions. This always has to match in order to create a well-formed rewrite proof.
+
+Note that for this case, it does not matter whether we have ($<->$), ($->$), or ($=$) as the middle element for the respectful chain. In fact, any reflexive relation over `Prop` would work here. Proceeding with this framework, we have to be mindful of which rewrites we can simplify with `Proper` and `respectful` proofs. We also need to consider which relations we use inside such a chain, how to choose the first and final relation argument, and finally what element we want to be proper under the sequence of `respectful` relations.
+
+The Coq library for morphisms has many theorems that operate on `Proper` and `respectful` terms which helps to construct and solve theorems containing morphisms and signatures. This allows us to use the same structure and theorems for rewrites in different terms. The proof construction for the rewrite proofs $p and q <- q and q$ and $p or q <- q or q$ can both be realised using `Proper` and `respectful`. This generalisation is the base for an algorithm proposed by Matthieu @sozeau:inria-00628904 that automatically produces rewrite proofs for any given proper relation where the term to be rewritten can be behind binders and nested in other structures. There is one more definition that makes the proposed algorithm more powerful. When we have a term $mono("Proper") (A ==> B) space f$ and we know that $B$ is a subrelation of $C$, we can imply that $mono("Proper") (A ==> C) space f$ also holds.
+
+== Algorithm Specification
+
+The core idea of the approach for rewriting proposed in @sozeau:inria-00628904 is to break down generalised rewriting into two parts. The first part that we introduced as constraint generation algorithm is a prodecure that generates a proof skeleton (a proof term containing metavariables) for the rewrite leveraging `Proper`, `respectful`, and `Subrelation` as seen above. In previous examples, we have seeen that while we know what types such a proof must have, we don't always know the actual instances of the `Proper` or `Subrelation` classes. They each only have a single constructor. We know that a proof for a `Subrelation` term must be constructed with `Subrelation.subrelation`. This means a proof that for a given relation $q$ and a given relation $r$, all $x$ and $y$ must satisfy $q space x space y -> r space x space y$ and similarly for `Proper` proofs. We may, however, not always know the proof for $forall x y, q space x space y -> r space x space y$. This is why the algorithm uses metavariables for those instances and for some sub-expressions. For instance, a proof skeleton for a simple atomic term $p : mono("Prop")$ and a proof $h : r space p space q$ would be a proof $mono("Subrelation.subrelation (Prop)") space r space (<-) space ?_m space p space q space h$. Notice that $?_m$ is a metavariable of type $mono("Subrelation" space r space (<-))$ which unfolds to $forall x y, r space x space y -> (x <- y)$. The application $?_m space p space q space h$ gives us the desired rewrite. The assignment for the metavariable $?_m$ is unknown and left as a hole in this proof. With more nested terms, this algorithm collects multiple unassigned metavariables.
 
 This is where the second part of the proposed approach, a proof search, comes into play. In Coq, this proof search is realized using typeclass resolution #cite(<sozeau:inria-00628904>) #cite(<casteran:hal-00702455>). Typeclass resolution in Coq searches through user defined instances of a typeclass and applies those instances. For example, the typeclass instance `iff_impl_subrelation` is an instance for the `Subrelation` typeclass in Coq that provides a proof for $mono("Subrelation" (<->) space (<-))$ which can be leveraged whenever the rewrite relation is $(<->)$.
 

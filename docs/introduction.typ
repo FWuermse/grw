@@ -2,9 +2,10 @@
 #import "./theme.typ": *
 
 = Introduction <Introduction>
-Rewriting in theorem provers is the process of replacing a subterm of an expression with another term. When and if such a rewrite can happen depends on the context, i.e., the information we have about the two terms. In Lean, rewriting is possible when two terms $t$ and $u$ are equal $t = u$ or with respect to the `propext` axiom when two propositions $p : mono("Prop")$ and $q : mono("Prop")$ imply each other $p <-> q$. This allows us to replace a term in a goal we want to solve or inside one of our hypothesis when reasoning in Lean.
 
-This allows us to proof mathematical propositions such as the commutativity for multiplication. In the below example we can see a lean proof of the commutativity of multiplication given that addition is commutative:
+Rewriting in theorem provers is the process of replacing a subterm $t$ of inside an expression with another term $u$. In Lean, rewriting is possible when the two terms are equal $t = u$ or when the two terms are propositions and imply each other $p <-> q$. This allows us to replace a term in a goal we want to solve or inside one of our hypothesis when reasoning in Lean.
+
+We can use the `rewrite` tactic in lean to show the that two natural numbers are still then same when we add zero on one side. Consider the example theorem $1 = 1 + 0$ that we want to proof. We also assume that we have a hypotheses that states $forall n : NN, n + 1 = n$. We can then perform a left-to-right rewrite. By that we mean replacing occurrences of the left-hand-side of the theorem ($n + 1$) in the proof-goal with the right-hand-side of that theorem. Using this rewrite we can alter the original goal $1 = 1 + 0$ to $1 = 1$ because $1 + 0$ is an occurrence of our theorems left-hand-side. The following example represents the rewrite in Lean's syntax:
 
 #show raw.where(block: true): code => {
   show raw.line: line => {
@@ -18,60 +19,64 @@ This allows us to proof mathematical propositions such as the commutativity for 
 }
 
 ```lean
-theorem mul_comm (m n : ℕ) :
-  mul m n = mul n m := by
-  induction m with
-  | zero => apply mul_zero
-  | succ m' ih =>
-    simp [mul]
-    rewrite [mul_succ]
-    rewrite [add_comm]
-    rewrite [ih]
-    rfl
+example (h : ∀ n : Nat, n + 0 = n) : 1 = 1 + 0 := by
+  rewrite [h]
+  rfl
 ```
 
-In this example, we want to prove that for any natural numbers $n$ and $m$ the multiplication $n dot m$ is equal to $m dot n$. In Lean, we do this using structural induction #footnote[Structural induction means that the induction follows the structure of the inductive type.] on the inductive type $NN$ which consists of only two constructors, `zero` for constructing 0 and `succ` for constructing any successor number. After unfolding the `mul` definition in line 6, we are left with a goal: $("succ" m) dot n = n + (n dot m)$. The `mul_succ` theorem has the type $("succ" m) dot n = (m dot n) + n$. The theorem's left-hand side matches the left hand side of the goal to prove. Therefore, we can rewrite it (replacing the left-hand side of the goal with the right-hand side of our theorem). The resulting goal is $(m dot n) + n = n + (n dot m)$ which can be closed by another rewrite with an addition-commutativity theorem and finally the induction hypothesis ($m dot n = n dot m$) which also proves equality and can thus be used in a rewrite.
+The syntax for rewriting in Lean is the keyword `rewrite` followed by a list of rewrite theorems. By appending the `at` keyword in sequence with a hypotheses we can rewrite the hypotheses istead of the goal. Lean will then repeatedly replace all left-hand-side occurrences in the current goal or specified hypotheses with the right-hand-side. If we want to perform a right-to-left rewrite for a certain rewrite hypotheses we can state it with a right-to-left arrow in front of the argument. In our example we could also perform a rewrite ```lean rewrite [← h]``` to replace $1$ in the goal leaving us with $1 + 0 = 1 + 0$.
 
-While this is sufficient considering the many helpful theorems and tactics Lean 4 offers, there are some cases @iris where it would be helpful to consider more general rewrites that exceed equality and bidirectional implication. For instance, rewriting with inequality rleations. When we try to solve a goal in a theorem prover, we usually have a given set of hypothesis and can access theorems that we have already proven as well as tactics that can apply multiple theorems. When we want to rewrite a goal which contains a term $t$ that we want to change to a term $u$, we can perform a rewrite by simply showing that $u$ implies $t$. Thus, it suffices to show $u$. The relation ($<->$) is convenient because it gives us such an implication per definition. However, it is possible to perform a rewrite using any relation that can lead to the desired implication.
+This form of rewriting only helps us to replace terms that are equal in Lean's type theory. However, sometimes we want to represent mathematical structures in Lean that have their own notion of equivalence but are not considered as such by Lean.
 
-In the Lean and Coq theorem provers, relations on a type $alpha$ are defined by $alpha arrow alpha arrow mono("Prop")$. When we want to prove a goal $t : mono("Prop")$ and have the hypothesis of $u : mono("Prop")$ as well as a proof $h$ of $r space t space u$ given $r$ is a relation $mono("Prop") arrow mono("Prop") arrow mono("Prop")$, we can prove the statement given we have the additional information that $r$ implies ($<-$). Essentially, this means ($<-$) is a subrelation of $r$. When those hypotheses are in place, the proof is straight forward for this minimal example. By Lean's definition of subrelations, it suffices to show $r space t space ?_t$ and $?_t$. The question marks refer to missing values that can be filled with any given term that matches its type (metavariables in Lean or existential variables in Coq). Metavariables are also used to represent goals in Lean. Metavariables of a certain type $tau$ can be assigned with any value $Gamma tack e : tau$ in the current context $Gamma$ (hypotheses, theorems, etc.). When we assign a metavariable that represents a goal, we also close the goal. Another way to leverage metavariables is to use them as placeholders in any given Lean term when the value is unknown at the time of creation. It is also possible to share a metavariable $?_x$ across multiple terms as seen in this example. Assigning such a metavariable with a value $v$ also assigns every occurrence of $?_x$ with $v$. Continuing our example, we can assign $?_t$ with $u$ and use our hypothesis that proves $u$ to close the final goal of our simple rewrite.
+Let us consider the example of an implementation of a mathematical set in lean that lets us examine and compare set members. We could start by reusing Lean's lists for our sets. Unlike sets, lists can have duplicate elements and the order of elements matters. If we want to reason about the equality of two sets $s_1$ and $s_2$ we could not simply check for equality as seen before. If $s_1$ has three elements $[1, 1, 2]$ and $s_2$ has only two elements $[2, 1]$ they would not be considered equal in Lean although they should represent two equal sets.
 
-We can see that in performing a rewrite always boils down to finding a proof that justifies the rewrite and applying that proof. Even the `rewrite` tactic already supported by Lean for rewriting with equalities merely generates proofs for a rewrite and applies them. The rewrite proof we have just observed leverages right-to-left implication to justify a valid rewrite. And this is a convenient proof term because it can be directly applied to a goal. Similarly, a proof term of a left-to-right implication can directly be applied to a hypotheses. Equality is also a way to justify rewrites by levering the `rewrite` tactic already in place for lean. However, for the remaining thesis we will stick with implications as our choice for justifying rewrites.
+In order to compare $l_1$ and $l_2$ as actual sets we have to define a custom relation for their equality:
 
-This approach is tedious to be performed manually especially when the goal is more complicated or the term we intend to rewrite is bound by a lambda expression or an all quantifier. When we want to prove a goal $p and q$ with the same context for instance, and we need to rewrite $p$ to $q$ inside the left-hand side of the conjunction (replace $p$ the  without modifying the remaining term), the proof of that rewrite requires us to set a new subgoal $p and q -> q and q$ and solve that by the rule for conjunction introduction leaving $t$ and $u$ as sub-subgoals. $u$ can be proven by our hypothesis, and the proof for $t$ is the same procedure as for the minimal rewrite example above. Even this approach is specific to conjunctions and can't be extended for other propositions.
+```lean
+def setEq {α : Type} : List α → List α → Prop :=
+  λ l1 l2 ⇒ ∀ x, x ∈ l1 ↔ x ∈ l2
+```
 
-A better approach for a general way of rewriting with arbitrary relations is by using the Morphism framework introduced by Mattheiu Sozeau @sozeau:inria-00628904 consisting of `respectful` and `Proper` definitions that can construct proofs for arbitrary terms using a syntax-directed algorithm. The `Proper` definition in @ProperDef merely takes a relation $r$ and an element $m$ in that relation demanding reflexivity of that element. Whenever this definition holds, we call $m$ a `Proper` element of $r$ meaning that $m$ is a morphism for $r$. The `respectful` definition seen in @respectfulDef denoted as ($==>$) is Coqs notion for signatures. This definition can produce very general implications for a variety of functions. For instance, the contrapositive theorem $forall a b : mono("Prop"), (a -> b) -> (not b -> not a)$ can be stated as $((->) ==> (<-)) space (not) space (not)$. We can even simplify the contrapositive theorem by leveraging `Proper` and `respectful` with $"Proper" ((->) ==> (<-)) space (not)$. We can use the same framework to specify the above rewrite $p and q -> q and q$ in a more general way. For instance, when we create a term $?_p$ of type $"Proper" ((=) ==> (<->) ==> (<-)) space (and)$, it translates to $forall x y, x = y -> forall x' y', x' <-> y' -> (x and x' <- y and y')$. When instantiating the variables in $?_p$, for instance with $p, q, h : p = q, q, q, (h' : b <-> b)$, we would obtain a proof for $(p and q <- q and q)$.
+This definition ensures that we now represent set equality correctly. We can even show that `setEq` is an equivalence relation by proving the properties identity, symmetry, and transitivity. We can continue and define a function to add elements `addElem` that appends an element to the underlying list of our set representation:
 
-Note that for this case, it does not matter whether we have ($<->$), ($->$), or ($=$) as the middle argument for the respectful chain. In fact, any reflexive relation over `Prop` would work here. Proceeding with this framework, we have to be mindful of which rewrites we can simplify with `Proper` and `respectful` proofs. We also need to consider which relations we use inside such a chain, how to choose the first and final relation, and finally what element we want to be proper under the sequence of `respectful` relations.
+```lean
+instance set_eq_equivalence {α : Type} : Equivalence (@setEq α) where
+  refl := fun l1 x => Iff.rfl
+  symm := by
+    intro x y hxy a
+    apply Iff.symm
+    exact hxy a
+  trans := by
+    intro x y z hxy hyz a
+    apply Iff.intro
+    intro hx
+    rewrite [hxy a, hyz a] at hx
+    exact hx
+    intro hz
+    rewrite [← hyz a, ← hxy a] at hz
+    exact hz
 
-#definition("Proper")[
-  ```lean
-  class Proper (r : relation α) (m : α) where
-    proper : r m m
-  ```
-] <ProperDef>
+def addElem {α : Type} (x : α) (l : List α) : List α :=
+  x :: l
+```
 
-#definition("respectful")[
-  ```lean
-  def respectful (r : relation α) (r' : relation β) : relation (α → β) :=
-    λ f g ↦ ∀ x y, r x y → r' (f x) (g y)
-  ```
-] <respectfulDef>
+Furthermore, we can show that addition of two equivalent sets preserves the equivalence. We also refer to this behaviour as morphism for `setEq`. The Lean proof for this is tedious however. The relation `setEq` is not the same as equality and can thus not be rewritten. This means we would have to proof that addition preserves the set equivalence for every element we may want to add. To solve a goal, for instance the implication $mono("setEq") [1, 1, 2] space [2, 1] -> mono("setEq") (mono("addElem" 3 space [1, 1, 2]) space (mono("addElem") 3 space [2, 1]))$. As we know that our addition of elements is a morphism for set equivalence, we would like to be able to rewrite just as we did with equality. To do this we need generalised rewriting.
 
-The Coq library for morphisms has many theorems that operate on `Proper` and `respectful` terms which helps to construct and solve theorems containing morphisms and signatures. This allows us to use the same structure and theorems for rewrites in different terms. The proof construction for the rewrite proofs $p and q <- q and q$ and $p or q <- q or q$ can both be realised using `Proper` and `respectful`. This generalisation is the base for an algorithm proposed by Matthieu @sozeau:inria-00628904 that automatically produces rewrite proofs for any given proper relation where the term to be rewritten can be behind binders and nested in other structures. There is one more definition that makes the proposed algorithm more powerful. When we have a term $mono("Proper") (A ==> B) space f$ and we know that $B$ is a subrelation of $C$, we can imply that $mono("Proper") (A ==> C) space f$ also holds.
+Generalised rewriting is the ability to replace subterm $t$ with $u$ when they are related by an arbitrary relation $r$ @sozeau:inria-00628904. In Type Theorey, relations are defined as $alpha -> alpha -> mono("Prop")$ where $alpha$ can be an arbitrary type and `Prop` is the type of propositions. Equality ($=$) is of type $alpha -> alpha -> mono("Prop")$ in Lean and the biimplication ($<->$) is of type $mono("Prop") -> mono("Prop") -> mono("Prop")$. We will also refer to relation types of $alpha -> alpha -> mono("Prop")$ as $mono("relation") alpha$.
 
-#definition("Subrelation")[
-  ```lean
-  class Subrelation (q r : α → α → Prop) :=
-    subrelation : ∀ {x y}, q x y → r x y
-  ```
-]
+With generalised gewriting we could solve the above example by replacing the occurrence of $[1, 1, 2]$ in the proof goal by the right-hand-side of the rewrite theorem $[2, 1]$. A Lean proof where generalised rewriting is supported with a tactic `grewrite` would look like the following:
 
-In this thesis, we will take a deeper look at the algorithm for generalised rewriting in type theory @sozeau:inria-00628904, compare it to the actual implementation of generalised rewriting in Coq, extract the differences between the two, and show that those algorithms provide the same rewrite proofs.
+```lean
+example : setEq [1,1,2] [2,1] → setEq (addElem 4 [1,1,2])  (addElem 4 [2,1]) := by
+  intro h
+  grewrite [h]
+  rfl
+```
 
-This highlights our contributions, which are the following:
-- Implement the algorithm seen in the paper in Lean 4
-- Provide the first description of the optimised Coq implementation that evolved over the last decades
-- Implement the optimized algorithm in Lean 4
-- Complete the optimized algorithm to be consistent with the algorithm mentioned in the paper
-- Show that both algorithms lead to the same rewrite proofs
+Generalised rewriting can not only replace terms related by equivalence relations but also relations that are only transitive or only symmetric. This can be useful to replace terms in inequations. Consider the goal $a < c$ for instance and the two hypotheses $"haltb" : a < b$ and $"hbltc" : b < c$. With generalised rewriting we can replace the $a$ in the goal with $b$ by with a left-to-right rewrite ```lean rewrite [haltb]```. We can then close the goal using the other hypotheses.
+
+The already present `rewrite` tactic for rewriting with equality and biimplication in Lean produces three outputs. The new goal after a rewrite occurred, a proof that the rewrite was just, and possible new subgoals that result from the rewrite. Theorem provers like Coq that already support generalised rewriting result in the same output information.
+
+In this thesis, we will take a deeper look at the algorithm for generalised rewriting in type theory proposed by Mattheiu Sozeau @sozeau:inria-00628904, compare it to the actual implementation of generalised rewriting in Coq, extract the differences between the two, and show that those algorithms provide the same rewrite proofs. The algorithm described in the literature consists of two parts. The first part generates the rewritten term and proof of the rewrite including holes (or subgoals) that cannot be known when exploring a term. We also refer to this part of the algorithm as constraint generation algorithm as it leaves some open constraints. The second part of the algorithm solves those open subgoals (or constraints) using a proof search. Throughout this thesis we will pay more attention to the constraint generation and assert the generated proofs and constraints.
+
+Our contributions to the research inlcude two implementations of generalised rewriting algorithms in Lean 4. The first one is a reimplementation of the literature version by Mattheiu Sozeau @sozeau:inria-00628904. The second implementation considers all improvements that have evolved in the Coq code base over the last two decades. Therefore, we provide the first description of the actual Coq rewriting algorithm including all those improvements. Our final contribution is an extension of the optimised Coq-inspired algorithm that makes the constraint generation more powerful than Coq's implementation and works for all cases described in the literature. This also includes a proof over the generated outputs of the algorithm. While our implementations generate the same proofs and constraints as the Coq's `rewrite` tactic does, our proof search is currently not as powerful as Coq's typeclass search. This may result in possible additional subgoals after performing certain rewrites.
