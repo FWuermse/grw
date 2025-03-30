@@ -85,7 +85,7 @@ We saw that, in the average case, the improved algorithm generates significantly
 
 - *Inductive case for $n + 1$ application subterms*
 
-    We can now assume that we have a given application sequence where both algorithms produce the same rewrite proofs (carrier relation and holes may still differ). Our induction hypotheses states that:
+    We can now assume that we have a given application sequence where both algorithms produce the same rewrite proofs (carrier relation and holes may still differ). Our induction hypothesis states that:
 
     $(Psi', r, e_0 ' space dots space e_n ', p : r space (e_0 space dots space e_n) space (e_0' space dots space e_n')) := mono("Rew"_rho) (Psi, e_0 space dots space e_n)$ implies:\ $(Psi'', r',e_0 ' space dots space e_n ', p' : r' space (e_0 space dots e_n) space (e_0 ' space dots space e_n ')) := mono("Subterm"_rho) (Psi, e_0 space dots space e_n, r)$ \ given that $e_0 space dots space e_n != e_0 ' space dots space e_n '$ and $(Psi'', mono("identity")) := mono("Subterm"_rho) (Psi, e_0 space dots space e_n, r)$ otherwise.
 
@@ -98,7 +98,7 @@ We saw that, in the average case, the improved algorithm generates significantly
 
     *Proof Resulting from Rew:*
 
-    We can prove this similarly to the base case as we always treat applications as binary applications here and read left-to-right. We know from our induction hypotheses that we obtain a single relation, proof, and rewritten term from the rewrite on $e_1 space dots space e_n$. Let the relation be $r_e_n : mono("relation") (alpha_0 space dots space alpha_n space tau)$. As we only consider well-formed applications and we are considering the last element of such an application, we can imply that $r_e_n$ must be a an arrow type. Let the recursively obtained proof be $p_e_n : r_e_n (e_0 ' space dots space e_n ') space (e_0 space dots space e_n)$, and thus $e_0 ' space dots space e_n '$ be the rewritten term. Similarly, the recursive invocation $mono("Rew")_rho (Psi, e_(n+1))$ outputs $r_e_(n+1) : mono("relation") alpha_(n+1)$, $u : alpha_(n+1)$, $p : r_e_(n+1) space e_(n+1) space u$. $r_tau$ is again the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')$:
+    We can prove this similarly to the base case as we always treat applications as binary applications here and read left-to-right. We know from our induction hypothesis that we obtain a single relation, proof, and rewritten term from the rewrite on $e_1 space dots space e_n$. Let the relation be $r_e_n : mono("relation") (alpha_0 space dots space alpha_n space tau)$. As we only consider well-formed applications and we are considering the last element of such an application, we can imply that $r_e_n$ must be a an arrow type. Let the recursively obtained proof be $p_e_n : r_e_n (e_0 ' space dots space e_n ') space (e_0 space dots space e_n)$, and thus $e_0 ' space dots space e_n '$ be the rewritten term. Similarly, the recursive invocation $mono("Rew")_rho (Psi, e_(n+1))$ outputs $r_e_(n+1) : mono("relation") alpha_(n+1)$, $u : alpha_(n+1)$, $p : r_e_(n+1) space e_(n+1) space u$. $r_tau$ is again the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')$:
 
     $#align(center + horizon)[
       #box(width: 70%, inset: (top: 15%))[

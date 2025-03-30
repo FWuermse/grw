@@ -16,6 +16,8 @@
 )
 #show heading: set block(below: 1.5em, above: 2em)
 
+#show figure: set block(below: 1.5em, above: 2em)
+
 #set page(numbering : "1")
 
 #counter(page).update(1)

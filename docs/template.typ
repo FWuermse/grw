@@ -44,7 +44,7 @@
 
   // Builtin show rules
   show link: set text(fill: blue.darken(60%))
-  show raw: set text(font: "Courier", size: 10pt)
+  show raw: set text(font: "New Computer Modern", size: 10pt)
 
   // Library show rules
   show: thmrules
