@@ -71,23 +71,23 @@ private def srep : Nat → String
   | n => n.fold (fun _ _ s => s ++ "  ") ""
 
 -- TODO: don't bother tracking the subgoals not to be solved via TCR. Lean will do that automatically.
-private def unify (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM  := do
+private def unify (t : Expr) (l2r : Bool) : RWM  := do
   let ρ ← read
   let lhs := if l2r then ρ.c1 else ρ.c2
   let rhs := if l2r then ρ.c2 else ρ.c1
   -- Take all initial holes and add collect the ones not reassigned to make them subgoals for the user to solve.
   if ← isDefEq lhs t then
     let subgoals ← ρ.holes.filterM fun mv => do pure !(← mv.isAssignedOrDelayedAssigned)
-    pure (Ψ, .success ⟨ρ.rel, t, rhs, ρ.prf, subgoals.map mkMVar⟩)
+    pure ([], .success ⟨ρ.rel, t, rhs, ρ.prf, subgoals.map mkMVar⟩)
   else
-    pure (Ψ, .id)
+    pure ([], .id)
 
 /--
 Note from paper:
 The variant unify∗ ρ(Γ, Ψ, τ ) tries unification on all subterms and succeeds if at least one
 unification does. The function unify(Γ, Ψ, t, u) does a standard unification of t and u.
 -/
-private def unifyStar (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
+private def unifyStar (t : Expr) (l2r : Bool) : RWM := do
   let ρ ← read
   let lhs := if l2r then ρ.c1 else ρ.c2
   let rhs := if l2r then ρ.c2 else ρ.c1
@@ -96,9 +96,9 @@ private def unifyStar (Ψ : List MVarId) (t : Expr) (l2r : Bool) : RWM := do
     b.set <| (← isDefEq lhs t') || (← b.get)
   if ← b.get then
     let subgoals ← ρ.holes.filterM fun mv => do pure !(← mv.isAssignedOrDelayedAssigned)
-    pure (Ψ, RewriteResult.success ⟨ρ.rel, t, rhs, ρ.prf, subgoals.map mkMVar⟩)
+    pure ([], RewriteResult.success ⟨ρ.rel, t, rhs, ρ.prf, subgoals.map mkMVar⟩)
   else
-    pure (Ψ, .id)
+    pure ([], .id)
 
 private def respectfulN (mvars : List Expr) : MetaM  Expr :=
   match mvars with
@@ -122,10 +122,10 @@ private def subrelInference (p : Expr) (r : Expr) (desiredRel : Expr) : MetaM (E
 `rew` always succeeds and returns a tuple (Ψ, R, τ', p) with the output constraints, a relation R, a new term τ' and a proof p : R τ τ'. In case no rewrite happens we can just have an application of ATOM.
 This output tuple represents the proof sekelton that is used in the proof search.
 -/
-partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2r : Bool) (depth : Nat) : RWM  := do
+partial def subterm (t : Expr) (desiredRel : Option Expr) (l2r : Bool) (depth : Nat) : RWM  := do
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"{srep <| depth}subterm Ψ ({t}) ρ") do
   let ρ ← read
-  if let (Ψ', .success res) ← unify Ψ t l2r ρ then
+  if let (Ψ', .success res) ← unify t l2r ρ then
     trace[Meta.Tactic.grewrite] "{srep depth} |UNIFY⇓ {res.rewFrom} ↝ {res.rewTo}"
     return (Ψ', .success res)
   match t with
@@ -145,19 +145,19 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
       let mut fn := f.getAppFn
       let appArgs ← t.getAppArgs.mapM fun t => do pure (t, ← inferType t)
       let mut prefixId := true
-      let mut Ψ := Ψ
+      let mut Ψ := []
       let mut respectfulList := []
       let mut prfArgs := []
       let mut rewMVars := []
       let mut u := fn
       -- If ρ matches f of an application f a b then ρ cannot match any other aplicant directly
-      if let (_, .success res) ← unify Ψ fn l2r ρ then
+      if let (_, .success res) ← unify fn l2r ρ then
         let rel ← mkFreshExprMVar <| ← mkAppM ``relation #[← inferType t]
         let prf ← appArgs.foldrM (fun (_, T) acc => mkAppM ``pointwiseRelation #[T, acc]) rel
         let sub ← mkFreshExprMVar <| ← mkAppM ``Subrel #[res.rewCar, prf]
         let p ← mkAppOptM ``Subrel.subrelation <| #[none, none, none, sub, none, none, res.rewPrf] ++ appArgs.map fun (t, _) => .some t
         u := mkAppN res.rewTo <| appArgs.map Prod.fst
-        let (Ψ'', snd) ← subterm Ψ u desiredRel l2r (depth + 1)
+        let (Ψ'', snd) ← subterm u desiredRel l2r (depth + 1)
         -- TODO: include both shadowed rels in psi
         if let .success res := snd then do
           let desiredRel := match desiredRel with
@@ -174,7 +174,7 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
         return (Ψ ++ [rel.mvarId!], .success ⟨rel, t, u, p, []⟩)
       for (t, T) in appArgs do
         let desiredRel ← mkFreshExprMVar <| ← mkAppM ``relation #[T]
-        let (Ψ', res) ← subterm Ψ t desiredRel l2r (depth+1) ρ
+        let (Ψ', res) ← subterm t desiredRel l2r (depth+1) ρ
         if prefixId then
           if let .id := res then
             -- If id happens at the beginning of an app we don't need to consider it
@@ -217,11 +217,11 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
       trace[Meta.Tactic.grewrite] "{srep depth} |APP {t}"
       return (Ψ ++ [prp.mvarId!], .success ⟨respectfulList.getLast!, t, u, p, rewMVars⟩)
     else
-      pure (Ψ, .id)
+      pure ([], .id)
   | .lam n T _b i => do
     trace[Meta.Tactic.grewrite] "{srep depth} |LAM {t}"
     lambdaTelescope t fun _xs b => do
-      let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← subterm Ψ b none l2r (depth+1) ρ | return (Ψ, .id)
+      let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← subterm b none l2r (depth+1) ρ | return ([], .id)
       let car ← match ← inferType S with
       | .forallE _ T _ _ => pure T -- TODO: test this case
       | .app _ car => pure car
@@ -233,24 +233,24 @@ partial def subterm (Ψ : List MVarId) (t : Expr) (desiredRel : Option Expr) (l2
   | .forallE n T b i => do
     if let .some (α, β) := t.arrow? then
       trace[Meta.Tactic.grewrite] "{srep depth} |Arrow {t}"
-      let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← subterm Ψ (mkApp2 (mkConst ``impl) α β) desiredRel l2r (depth+1) | pure (Ψ, .id)
+      let (Ψ, .success ⟨S, _, b, p, subgoals⟩) ← subterm (mkApp2 (mkConst ``impl) α β) desiredRel l2r (depth+1) | pure ([], .id)
       let .app (.app _ α) β := b | throwError "Rewrite of `Impl α β` resulted in a different (thus wrong) type."
       let u ← mkArrow α β
       return (Ψ, .success ⟨S, t, u, p, subgoals⟩)
     else
       trace[Meta.Tactic.grewrite] "{srep depth} |PI {t}"
-      let (Ψ', res) ← unifyStar Ψ T l2r
+      let (Ψ', res) ← unifyStar T l2r
       match res with
       | .success info => return (Ψ', .success info)
       | .id =>
-        let (Ψ, .success ⟨S, _, .app _ (.lam n T b i), p, subgoals⟩) ← subterm Ψ (← mkAppM ``all #[T, .lam n T b i]) none l2r (depth+1)
+        let (Ψ, .success ⟨S, _, .app _ (.lam n T b i), p, subgoals⟩) ← subterm (← mkAppM ``all #[T, .lam n T b i]) none l2r (depth+1)
           | throwError "Rewrite of `all λ x ↦ y` resulted in a different (thus wrong) type."
         let u := .forallE n T b i
         pure (Ψ, .success ⟨S, t, u, p, subgoals⟩)
-      | .fail => return (Ψ, .fail)
+      | .fail => return ([], .fail)
   | _ => do
     trace[Meta.Tactic.grewrite] "{srep depth} |ATOM {t}"
-    pure (Ψ, .id)
+    pure ([], .id)
 
 /--
 See (https://github.com/coq/coq/pull/13969)[Coq]
@@ -484,14 +484,13 @@ def algorithm (ps : TSyntax `rewrite) : TacticM Unit := withMainContext do
     let goalType ← match location with
     | none => do goal.getType
     | some l => do inferType l.toExpr
-    let Ψ := []
     let ρ ← toHypInfo expr
     let desired : Expr ← match (location, l2r) with
     | (none, true) => do mkAppM ``flip #[mkConst ``impl]
     | (some _, true) => do pure <| Lean.mkConst ``impl
     | (none, false) => do pure <| Lean.mkConst ``impl
     | (some _, false) => do mkAppM ``flip #[mkConst ``impl]
-    let (Ψ, res) ← subterm Ψ goalType desired l2r 0 ρ
+    let (Ψ, res) ← subterm goalType desired l2r 0 ρ
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {name}."
     | .fail => logError "Rewrite failed to generate constraints."
@@ -544,12 +543,11 @@ private def assertConstraints (ps : TSyntax `grw_assert) (ts : Syntax.TSepArray 
     let goalType ← match location with
     | none => do goal.getType
     | some l => do inferType l.toExpr
-    let Ψ := []
     let ρ ← toHypInfo expr
     let desired : Expr ← match location with
     | none => do mkAppM ``flip #[mkConst ``impl]
     | some _ => do pure <| Lean.mkConst ``impl
-    let (Ψ, res) ← subterm Ψ goalType desired l2r 0 ρ
+    let (Ψ, res) ← subterm goalType desired l2r 0 ρ
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {name}."
     | .fail => logError "Rewrite failed to generate constraints."
