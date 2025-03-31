@@ -24,7 +24,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
     (Proper (Iff ⟹ ?r0) (impl Q)),
     (relation Prop),
     (Proper (Iff ⟹ ?r) (impl Q)),
-    (Proper (?r ⟹ ?r0 ⟹ flip impl) (And));
+    (Proper (?r0 ⟹ ?r ⟹ flip impl) (And));
   sorry
 
 -- ATOM
@@ -78,9 +78,9 @@ ProperProxy ?r c
 example {r : α → α → Prop} [Equiv r] : r a b → r b c → r a c := by
   intro rab rbc
   assert_constraints [rab]
+    (relation α),
     (ProperProxy ?r c),
     -- I omitted optional rel constraints from the coq exports. So this is expected.
-    (relation α),
     (Proper (r ⟹ ?r ⟹ flip impl) r);
   sorry
 
@@ -108,8 +108,8 @@ Produces:
 example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (P → Q) := by
   intros P Q H
   assert_constraints [H]
-    (ProperProxy ?r0 Q),
     (relation Prop),
+    (ProperProxy ?r0 Q),
     (relation Prop),
     (Proper (Iff ⟹ ?r0 ⟹ ?r) impl),
     (Proper (?r ⟹ flip impl) (And Q));
@@ -133,8 +133,8 @@ Produces:
 example : ∀ P Q : Prop, (P ↔ Q) → (P → Q) := by
   intros P Q H
   assert_constraints [H]
-    (ProperProxy ?r Q),
     (relation Prop),
+    (ProperProxy ?r Q),
     (Proper (Iff ⟹ ?r ⟹ flip impl) impl);
   sorry
 
@@ -158,8 +158,8 @@ Produces:
 example : ∀ P Q : Prop, (P ↔ Q) → P ∧ (P → Q) := by
   intros P Q H
   assert_constraints [H]
-    (ProperProxy ?r0 Q),
     (relation Prop),
+    (ProperProxy ?r0 Q),
     (relation Prop),
     (Proper (Iff ⟹ ?r0 ⟹ ?r) impl),
     (Proper (Iff ⟹ ?r ⟹ flip impl) And);
@@ -193,7 +193,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
     (Proper (Iff ⟹ ?r0) (impl Q)),
     (relation Prop),
     (Proper (Iff ⟹ ?r) (impl Q)),
-    (Proper (?r ⟹ ?r0 ⟹ flip impl) And),
+    (Proper (?r0 ⟹ ?r ⟹ flip impl) And),
     (relation Prop),
     (relation Prop);
   sorry
@@ -225,8 +225,8 @@ ProperProxy ?r x
 -/
 example (h: Rα a a') (finish: Rα a' x) : Rα a x := by
   assert_constraints [h]
-    (ProperProxy ?r x),
     (relation α),
+    (ProperProxy ?r x),
     (Proper (Rα ⟹ ?r ⟹ flip impl) Rα);
   sorry
 
@@ -248,8 +248,8 @@ example (h: Rα a a') (finish: Rβ (fαβ a') x): Rβ (fαβ a) x := by
   assert_constraints [h]
     (relation β),
     (Proper (Rα ⟹ ?r) fαβ),
-    (ProperProxy ?r0 x),
     (relation β),
+    (ProperProxy ?r0 x),
     (Proper (?r ⟹ ?r0 ⟹ flip impl) Rβ);
   sorry
 
@@ -280,26 +280,26 @@ example (h: Rα a a') (finish: Pα a'): Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ 
   assert_constraints [h]
     -- Names shuffled because I couldn't bother doing that SAT assignment.
     (relation Prop),
-    (Proper (Rα ⟹ ?r0) Pα),
+    (Proper (Rα ⟹ ?r) Pα),
     (relation Prop),
     (Proper (Rα ⟹ ?r1) Pα),
     (relation Prop),
-    (Proper (?r1 ⟹ ?r0 ⟹ ?r2) And),
+    (Proper (Rα ⟹ ?r2) Pα),
     (relation Prop),
     (Proper (Rα ⟹ ?r3) Pα),
     (relation Prop),
-    (Proper (?r3 ⟹ ?r2 ⟹ ?r4) And),
+    (Proper (Rα ⟹ ?r4) Pα),
     (relation Prop),
     (Proper (Rα ⟹ ?r5) Pα),
     (relation Prop),
-    (Proper (?r5 ⟹ ?r4 ⟹ ?r6) And),
+    (Proper (?r4 ⟹ ?r5 ⟹ ?r6) And),
     (relation Prop),
-    (Proper (Rα ⟹ ?r7) Pα),
+    (Proper (?r3 ⟹ ?r6 ⟹ ?r7) And),
     (relation Prop),
-    (Proper (?r7 ⟹ ?r6 ⟹ ?r8) And),
+    (Proper (?r2 ⟹ ?r7 ⟹ ?r8) And),
     (relation Prop),
-    (Proper (Rα ⟹ ?r9) Pα),
-    (Proper (?r9 ⟹ ?r8 ⟹ flip impl) And);
+    (Proper (?r1 ⟹ ?r8 ⟹ ?r9) And),
+    (Proper (?r ⟹ ?r9 ⟹ flip impl) And);
   sorry
 
 -- Examples from the Paper
@@ -314,18 +314,18 @@ variable {unionEmpty : ∀ s, eqset (union s empty) s}
 variable {unionIdem : ∀ s, eqset (union s s) s}
 variable {unionCompat : ∀ s s', eqset s s' → ∀ t t', eqset t t' → eqset (union s t) (union s' t')}
 
-@[grwerite]
+@[grw]
 instance unionProper : Proper (eqset ⟹ eqset ⟹ eqset) union := ⟨unionCompat⟩
 
 example : ∀ s, eqset (union (union s empty) s) s := by
   intro s
   assert_constraints [unionEmpty]
+    (relation SET),
     (ProperProxy ?r s),
     (relation SET),
-    (relation SET),
     (Proper (eqset ⟹ ?r ⟹ ?r0) union),
-    (ProperProxy ?r1 s),
     (relation SET),
+    (ProperProxy ?r1 s),
     (Proper (?r0 ⟹ ?r1 ⟹ flip impl) eqset);
   --assert_constraints [unionIdem]
   --apply Reflexive.rfl
@@ -351,19 +351,19 @@ ProperProxy ?r c
 -/
 example (r : relation α) (h : r a x) (f : α → β → γ → Prop) : f a b c := by
   assert_constraints [h]
-    (ProperProxy ?r0 b),
     (relation β),
-    (ProperProxy ?r c),
+    (ProperProxy ?r0 b),
     (relation γ),
+    (ProperProxy ?r c),
     (Proper (r ⟹ ?r0 ⟹ ?r ⟹ flip impl) f);
   sorry
 
 example (r : relation α) (h : r a x) (f: α → β → γ → α → Prop) : f a b c a := by
   assert_constraints [h]
-    (ProperProxy ?r b),
     (relation β),
-    (ProperProxy ?r0 c),
+    (ProperProxy ?r b),
     (relation γ),
+    (ProperProxy ?r0 c),
     (Proper (r ⟹ ?r ⟹ ?r0 ⟹ r ⟹ flip impl) f);
   sorry
 
@@ -385,10 +385,10 @@ ProperProxy ?r0 b
 -/
 example (r : relation α) (g : α → α) (h : r a x) (f: α → β → α → α → Prop) : f a b (g a) a := by
   assert_constraints [h]
+    (relation β),
+    (ProperProxy ?r0 b),
     (relation α),
     (Proper (r ⟹ ?r) g),
-    (ProperProxy ?r0 b),
-    (relation β),
     (Proper (r ⟹ ?r0 ⟹ ?r ⟹ r ⟹ flip impl) f);
   sorry
 
@@ -429,8 +429,8 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → Q) := by
   assert_constraints [H]
     (relation Prop),
     (Proper (Iff ⟹ ?r) (impl Q)),
-    (ProperProxy ?r0 (Q -> Q)),
     (relation Prop),
+    (ProperProxy ?r0 (Q -> Q)),
     (Proper (?r ⟹ ?r0 ⟹ flip impl) And);
   sorry
 
@@ -462,8 +462,8 @@ TBD
 example {r : α → α → Prop} [Equiv r] : r b a → r b c → r a c := by
   intro rab rbc
   assert_constraints [← rab]
-    (ProperProxy ?r c),
     (relation α),
+    (ProperProxy ?r c),
     (Proper (r ⟹ ?r ⟹ flip impl) r);
   sorry
 
