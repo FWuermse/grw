@@ -10,13 +10,29 @@ We briefly mentioned that the literature algorithm about generalised rewriting c
 
 In this section we will clarify the terms goal, subgoal, Lean term, and constraint by explaining the nature of Lean expressions.
 
-A term (or expression) in Lean 4 can be represented as any of the following variants `const`, `sort`, `fvar`, `mvar`, `app`, `lam`, `bvar`, `forallE`, `letE`, `lit`, `mdata`, or `proj`. They each represent a unique constructior of Lean's expression (`Expr`) type.
+A term (or expression) in Lean 4 can be represented as any of the following variants `const`, `sort`, `fvar`, `mvar`, `app`, `lam`, `bvar`, `forallE`, `letE`, `lit`, `mdata`, or `proj`. They each represent a unique constructior of Lean's expression (`Expr`) type:
 
-Each of the below listed constructors can create an `Expr` type.
+```lean
+inductive Expr : Type where
+  | const : Name → List Level → Expr
+  | sort : Level → Expr
+  | fvar : FVarId → Expr
+  | mvar : MVarId → Expr
+  | app : Expr → Expr → Expr
+  | lam : Name → Expr → Expr → BinderInfo → Expr
+  | bvar : Nat → Expr
+  | forallE : Name → Expr → Expr → BinderInfo → Expr
+  | letE : Name → Expr → Expr → Expr → Bool → Expr
+  | lit : Literal → Expr
+  | mdata : MData → Expr → Expr
+  | proj : Name → Nat → Expr → Expr
+```
+
+Note that all constructors of the `Expr` type contain references to Expr itself. This means that expressions can be build from other expressions. Throughout this theses we refer to those nested expressions as sub-expressions. The `app` constructor for instance requires two sub-expressions for the left-hand side and the right-hand side. The term ```lean Expr.app (Expr.const a []) (Expr.const b [])``` results in an application expression containing two sub-expressions for the constants `a` and `b`.
 
 - Expr.const refers to constants such as definitions or theorems that have a unique name.
 - Expr.sort is the level of types where `sort 0` represents propositions and $mono("sort" n)$ is of type $mono("sort" n + 1)$.
-- Expr.fvar is Lean's representation for free variables in the local context such as hypotheses
+- Expr.fvar is Lean's representation for free variables in the local context
 - Expr.mvar is a metavariable, a syntactic hole in a lean expression
 - Expr.app represents function application e.g.: $f(g(e))$ in Lean
 - Expr.lam is the expression-type for anonymous function or lambda expressions in Lean
@@ -31,6 +47,8 @@ Expressions of type `mvar` are the kind of Lean expressions that also represent 
 
 Metavariables of a certain type $Gamma tack tau$ can be assigned with any value $Gamma tack e : tau$ in the context $Gamma$ (hypotheses, theorems, etc.). Both $Gamma$ and $tau$ are part of that metavariable. When we assign a metavariable that represents a goal, we also close the goal. Another way to leverage metavariables is to use them as placeholders in any given Lean term when the value is unknown at the time of creation. It is also possible to share a metavariable $?_x$ across multiple terms as seen in this example. Assigning such a metavariable with a value $v$ also assigns every occurrence of $?_x$ with $v$. Whenever we choose variable names starting with a question mark in this thesis, we refer to metavariables.
 
+Another conecept frequently used in the rewriting algorithm we propose is unification. In Lean 4 unification refers to the assigments of metavariables so that two terms $t$ and $u$ containing them, become definitional equal @carneiro2019type. We will refer to two different functions for unification. The function $mono("unify")_rho (t)$ tries to unify t with the left-hand side of $rho$'s applied relation. The function also introduces local hypotheses for bound variables of possible `forallE` or `lam` expressions, in which case unification is evaluated on the according body. The $mono("unify")$ function returns tuple $(Psi, r, u, b)$. The first element is a set $Psi$ of hypotheses corresponding to the newly introduced binder variables that were not reassigned during unification. The relation $r$ represents the relation over the successful unification and is typically the relation used in $rho$. The term $u$ is the term that was made equal through unification, typeically the right-hand side of $rho$. The last argument $b$ is a boolean value that is `true` when unification succeeded and `false` otherwise. The modified version $mono("unify"^"*")_rho (t)$ has the same behaviour but tries unification on all subterms and succeeds if at least one unification does @sozeau:inria-00628904.
+
 == Proof Strategy for Rewriting
 
 We mentioned that every rewrite must be justified by a proof and the rewrite tactic must provide that proof. When we want to prove a goal $P space t : mono("Prop")$ and have a hypothesis $h$ of type $r space t space u$ given $r$ is a relation $alpha arrow alpha arrow mono("Prop")$, we can prove the statement given we have the additional information that $P$ is preserved by $r$. In order to generate a rewrite proof for that, $r$ must be an equivalence relation or imply the implication ($<-$). Essentially, this means ($<-$) is a direct subrelation of $r$ or a transitive subrelation. When those hypotheses are in place, the proof is straight forward for this minimal example. By Lean's definition of subrelations, it suffices to show $r space t space ?_t$ and $?_t$. We can assign $?_t$ with $u$ obtain a proof for the rewrite $t <- u$.
@@ -42,7 +60,7 @@ We mentioned that every rewrite must be justified by a proof and the rewrite tac
   ```
 ]
 
-Performing a rewrite always boils down to finding a proof that justifies the rewrite and applying that proof. Even the `rewrite` tactic already supported by Lean for rewriting with equalities merely generates proofs for a rewrite and applies it. The rewrite proof we have just observed leverages right-to-left implication to justify a valid rewrite. Similarly, a proof term of a left-to-right implication can directly be applied to a hypothesis. Equality is also a way to justify rewrites by leveraging the `rewrite` tactic already in place for lean. However, for the remaining thesis we will stick with implications as our choice for justifying rewrites.
+Performing a rewrite always boils down to finding a proof that justifies the rewrite and applying that proof. Even the `rewrite` tactic already supported by Lean for rewriting with equalities merely generates proofs for a rewrite and applies it. The rewrite proof we have just observed leverages right-to-left implication to justify a valid rewrite. Similarly, a proof term of a left-to-right implication can directly be applied to a hypothesis. Equality is also a way to justify rewrites by leveraging the `rewrite` tactic already in place for lean. However, for the remaining thesis we will stick with implications as our choice for justifying rewrites. For simplicity we will only consider rewrites on goals (right-to-left implications) and briefly mention the required change for rewriting hypotheses in @Implementation.
 
 == Coq's Morphism Framework
 
@@ -63,7 +81,6 @@ The morphism framework introduced by Mattheiu Sozeau @sozeau:inria-00628904 cons
 ]
 
 We can use the same infrastructure to specify the above rewrite from $P space t$ to $P space u$ in a more general way. We asume that we have the same hypothesis $h : r space t space u$. When $r$ preserves $P$ we can create (and prove) a hypothesis $h_p$ of type $mono("Proper") (r ==> (<-)) space P$. When we follow the same steps as for the contrapositive calculation we end up with a transformed hypothesis $h_p '$ of type $forall x space y, (r space x space y) -> (P x <- P y)$. When a hypothesis contains a universal quantifier over $x$ and $y$, we can instaciate the two variables. If we do so with $t$ and $u$ we obtain a modified hypothesis $r space t space u -> (P space t <- P space u)$. When we apply $h$ to this hypothesis we obtain a proof of a rewrite from $P space t$ to $P space u$.
-
 
 #definition("Proper")[
   ```lean
@@ -95,70 +112,85 @@ This is where the second part of the proposed approach, a proof search, comes in
 
 The algorithm in @rewalgo is an imperative translation of the declarative algorithm proposed in @sozeau:inria-00628904 that follows our implementation in Lean 4. The algorithm is syntax directed and covers every term that can be constructed in Lean. The algorithm divides lean tearms between function applications, lambda functions, dependent arrow types, non-dependent arrow types, and a default case for all remaining expression variants.
 
-The algorithm initially takes an empty constraint set $Psi$, a term $t$ in that we want to rewrite, and a proof $rho$ that is of the type $r space a space b$ where $r$ is a relation, $a$ is a term we want to rewrite in $t$, and $b$ is the value we want to replace $a$ with. The algorithm outputs a tuple ($Psi$, $r$, $u$, $p$). $Psi$ is the modified, initially provided set which contains all holes (also referred to as constraints) in the rewrite proof that cannot be determined at the time. Those holes in the proof are represented as metavariables in Lean. The idea of collecting those constraints seperately in a set is to solve them prior to applying the resulting rewrite proof. If we apply a proof contraining open holes, Lean would set them as goals for the user to solve. To avoid this, we remember what needs to be solved before applying the proof. $r$ is the carrier relation for the rewrite proof. $u$ refers to the modified term, and $p$ is the proof for the rewrite containing the metavariables in $Psi$. At the beginning, we always check whether the term we want to rewrite unifies directly for the given proof $rho$. In that case, the proof-result for a rewrite would just be $rho$. Because $rho$ (and any proof-result of this algorithm) is not of the type $t <- u$, we will wrap the output of the algorithm in a proof for $"Subrelation" r space (<-)$. @infersub represents a small algorithm responsible for that subrelation wrapping. When rewriting with `Rew`, we can simply invoke $mono("InferRel") (mono("success Rew")_rho (emptyset, t), t)$. We will cover `InferRel` and the `RewriteResult` type in depth in @idsuccstatus.
-
-Unification is the process of identifying whether two expressions can be identically substituted or unified @unification. In Lean 4, this refers to checking for definitional equality @carneiro2019type of the two terms after binding all variables bound by universal quantifiers. For instance, the expressions $forall x_0 dots x_n, a$ and a term $a'$ would unify if and only if $a' equiv a$.
+The algorithm takes a term $t$ in which we want to rewrite and a hypothesis $rho$ that is of the type $r space a space b$ where $r$ is a relation, $a$ is a subterm we want to rewrite in $t$, and $b$ is the value we want to replace $a$ with. The algorithm outputs a tuple ($Psi$, $r$, $u$, $p$). $Psi$ is the set of syntactic holes that appear in the proof $p$. Those holes in the proof are represented as metavariables in Lean. The idea of collecting those constraints seperately in a set is to solve them prior to applying the resulting rewrite proof. If we instead applied a proof contraining unassigned metavariables, Lean would set them as goals for the user to solve. To avoid this, we remember what needs to be solved before applying the proof. The second element of the output tuple, $r$, is the carrier relation for the rewrite proof. The new term $u$ is similar to $t$ with the difference that every occurence of the left-hand side of $rho$ was replaced with its right-hand side. The final element of the output tuple, $p$, is the proof for the rewrite containing the metavariables in $Psi$. At the beginning, we always check whether the term we want to rewrite unifies directly for the given proof $rho$. In that case, the proof-result for a rewrite would just be $rho$. Because $rho$ (and any proof-result of this algorithm) is not of the type $t <- u$, we will wrap the output of the algorithm in a proof for $"Subrelation" r space (<-)$. @infersub represents a small algorithm responsible for that subrelation wrapping. When rewriting with `Rew`, we can simply invoke $mono("InferRel") (mono("Rew")_rho (t), t)$. We will cover `InferRel` more in depth in @idsuccstatus.
 
 When we want to rewrite a term $t$ with the left-hand side of a rewrite theorem $rho : r space a space a'$, we need to check for unification of $a$ with a subterm of $t$. However, sometimes we may want to rewrite right-to-left. To achieve this, we instead check if $a'$ unifies with a subterm of $t$. In Lean's `rewrite` tactic, the direction can be stated with an arrow $mono("rewrite [") <- rho mono("]")$ for right-to-left and per default $mono("rewrite [") rho mono("]")$ for left-to-right rewrites. Throughout this thesis, we will always assume that a rewrite is left-to-right as it is very simple to change the direction. The only change required for the algorithm to work right-to-left is to update the `unify` function that we will see in this section. 
 
-Whenever a term $t$ does not unify directly, we examine its structure and use a different approach depending on whether $t$ is a function application, lambda expression, dependent/non-dependent arrow, or constant. Whenever we encounter an application $f space e$, we perform a recursive call on both $f$ and $e$. We use the obtained carrier relation $r_f$, proof, and term to construct a proof that $r_f$ is a subrelation of $r_e ==> ?_T$. This is where the first holes occur that we collect in the constraint set $Psi$. This generates a proof for $r space t space u$. Recall that we construct a $"Subrelation" r space (<-)$ after invoking `Rew` which leads to a proof of $t <- u$.
+Whenever a term $t$ does not unify directly, we examine its structure and use a different approach depending on whether $t$ is a function application, lambda expression, dependent/non-dependent arrow, or constant. Whenever we encounter an application $f space e$, we perform a recursive call on both $f$ and $e$. We use the obtained carrier relation $r_f$, proof, and term to construct a proof that $r_f$ is a subrelation of $r_e ==> ?_T$. This is where the first metavariables occur that we collect in the constraint set $Psi$. This generates a proof for $r space t space u$. Recall that we construct a $"Subrelation" r space (<-)$ after invoking `Rew` which leads to a proof of $t <- u$.
 
-For rewrites inside lambda terms, we bind $x : tau$ to the local context and perform a recursive rewrite on the body of the lambda expression. The resulting proof wrapped in a fresh lambda expression while binding $x : tau$ represents the proof for $r space (lambda x:tau. b) space (lambda x:tau. b')$  which eventually progresses to $(lambda x:tau. b) <- (lambda x:tau. b')$.
+#definition("pointwise relation")[
+  ```lean
+  def pointwiseRelation (α : Sort u) {β : Sort u} (r : relation β) : relation (α → β) :=
+    λ f g ↦ ∀ x, r (f x) (g x)
+  ```
+] <pointwise>
 
-All other cases leverage either the lambda or application cases by converting them slightly to fit in the scheme. The non-dependent arrow case is simply transformed into an artificial function that represents an arrow. This has the advantage that locally declared functions (`impl` in this case) are considered constants in Lean and thus reuse the already defined application case. We apply the same strategy for the case of a universal quantifier that uses a local dependent function `all`.
+For rewrites inside lambda terms, introduce a local hypothesis, $x : tau$, corresponding to bound variable and perform a recursive rewrite on the body of the lambda expression. We denote the introduction of the local hypotheses with the $mono("hyp")$ function. The resulting proof wrapped in a fresh lambda expression while binding $x : tau$ represents the proof for $r space (lambda x:tau. b) space (lambda x:tau. b')$  which eventually progresses to $(lambda x:tau. b) <- (lambda x:tau. b')$. The carrier relation for rewrites inside lambda functions is a pointwise relation (see @pointwise). This allows pointwise extending the proof original proof @sozeau:inria-00628904.
 
-Finally, we will take a look at the last case that is triggered whenever none of the above cases match. This is the case for constants such as `all`, `impl`, or simply for atoms that do not unify at the beginning of the `Rew` function. In this case, we construct another metavariable of type $"Proper" tau space ?_r t'$ that is treated as a hole at the bottom of the proof tree. It essentially represents a syntactic hole for a proof of an identity rewrite from $t$ to $t$ over a relation that is also a metavariable. This will always happen for this algorithm as we never specify the desired relation for the proof and generate metavariables whenever we do not know the relation.
+#definition("impl")[
+  ```lean
+  def impl (α β : Prop) : Prop := α → β
+  ```
+] <impl>
+
+#definition("all")[
+  ```lean
+  def all (α : Sort u) (p : α -> Prop) :=
+    ∀x, p x
+  ```
+] <all>
+
+The remaining cases leverage either the lambda or application cases by converting them slightly to fit in the scheme. Non-dependent function types are transformed into the constant `impl` in @impl for a function type. This has the advantage that `const` definitions applied to arguments are represented as applications in Lean and thus reuse the already defined application case. We apply the same strategy for the case of a dependent function type that uses a local dependent function `all` in @all.
+
+Finally, we will take a look at the last case that is triggered whenever none of the above cases match. This is the case for constants such as `all`, `impl`, or simply for atoms that do not unify at the beginning of the `Rew` function. In this case, we construct another metavariable of type $"Proper" tau space ?_r t'$ that is treated as a hole at the bottom of the proof tree. We denote the creation of new metavariables using the $mono("mvar")$ function that takes a type and returns a metavariable of that type. It essentially represents a syntactic hole for a proof of an identity rewrite from $t$ to $t$ over a relation that is also a metavariable. This will always happen for this algorithm as we never specify the desired relation for the proof and generate metavariables whenever we do not know the relation.
 
 #figure(
 algo(
   row-gutter: 5pt,
-  keywords: ("if", "else", "then", "match", "return", "with", "type"),
+  keywords: ("if", "else", "then", "match", "return", "with", "type", "mvar", "hyp"),
   title: $"Rew"_rho$,
-  parameters: ($Psi$, $t$)
+  parameters: ($t$,)
 )[
-  ($Psi'$, $r'$, $u'$, unifyable) := $"unify"_rho$($Psi$, $t$)\
-  if unifyable then:#i\
+  ($Psi'$, $r'$, $u'$, unifiable) := $"unify"_rho$($t$)\
+  if unifiable then:#i\
     return ($Psi'$, $r'$, $u'$, $rho$)#d\
   match $t$ with\
   $|$ $f$ $e$ $=>$#i\
-    ($Psi'$, $r_f$, $u_f$, $p_f$) := #smallcaps($"Rew"_rho$)$(Psi, f)$\
-    ($Psi''$, $r_e$, $u_e$, $p_e$) := #smallcaps($"Rew"_rho$)$(Psi', e)$\
-    $Psi'''$ := {$?_T$ : relation type($f space e$), $?_"sub"$ : subrelation $r_f (r_e ==> ?_T)$}\
-    return ($Psi'' union Psi'''$, $?_T$, $"app" u_f u_e$, $?_"sub" f space u_f space p_f space e space u_e space p_e$)#d\
+    ($Psi$, $r_f$, $u_f$, $p_f$) := #smallcaps($"Rew"_rho$)$(f)$\
+    ($Psi'$, $r_e$, $u_e$, $p_e$) := #smallcaps($"Rew"_rho$)$(e)$\
+    $?_T$ := mvar(relation type($f space e$))\
+    $?_"sub"$ := mvar(subrelation $r_f (r_e ==> ?_T))$\
+    $Psi''$ := {$?_T$, $?_"sub"$}\
+    return ($Psi union Psi' union Psi''$, $?_T$, $"app" u_f space u_e$, $?_"sub" f space u_f space p_f space e space u_e space p_e$)#d\
   $|$ $lambda$ x : $tau$. b $=>$#i\
-    ($Psi'$, $r$, $u$, $p$) := #smallcaps($"Rew"_rho$)$(Psi, b)$\
-    return ($Psi'$, pointwiseRelation $tau$ $r$, $lambda$ x : $tau$. u, $lambda$ x : $tau$. p)#d\
+    hyp(x)\
+    ($Psi$, $r$, $u$, $p$) := #smallcaps($"Rew"_rho$)$(b)$\
+    return ($Psi$, pointwiseRelation $tau$ $r$, $lambda$ x : $tau$. u, $lambda$ x : $tau$. p)#d\
   $|$ $forall x : tau, b$ $=>$#i\
-    ($Psi'$, $r$, $u$, unifyable) := $"unify*"_rho$($Psi$, $b$)\
-    if unifyable then:#i\
-      return ($Psi'$, $r$, $u$, $rho$)#d\
+    ($Psi$, $r$, $u$, unifiable) := $"unify*"_rho$($b$)\
+    if unifiable then:#i\
+      return ($Psi$, $r$, $u$, $rho$)#d\
     ($Psi'$, $r'$, $"all" (lambda x : tau. b')$, $p$) := #smallcaps($"Rew"_rho$)$(Psi, "all" (lambda x : tau. b))$\
-    return ($Psi'$, $r'$, $forall$ x : $tau$, $b'$, $p$)#d\
+    return ($Psi'$, $r'$, ($forall$ x : $tau$, $b'$), $p$)#d\
   $|$ $sigma -> tau$ $=>$#i\
-    ($Psi'$, $r$, $"impl" sigma' space tau'$, $p$) := #smallcaps($"Rew"_rho$)$(Psi, "impl" sigma space tau)$\
+    ($Psi$, $r$, $"impl" sigma' space tau'$, $p$) := #smallcaps($"Rew"_rho$)$("impl" sigma space tau)$\
     return ($Psi'$, $r$, $sigma' -> tau'$, $p$)#d\
   $|$ t' $=>$#i\
-    return ($Psi union {?_r : $ relation type($t$), $?_m : "Proper" tau space?_r space t'}$, $?_r$, $t'$, $?_m$)
-], caption: [Imperative Algorithm for Generalised Rewriting @sozeau:inria-00628904.]) <rewalgo>
+    $?_r$ := relation type($t$)\
+    $?_m := "Proper" tau space?_r space t'$\
+    return ($Psi union {?_r, ?_m}$, $?_r$, $t'$, $?_m$)
+], caption: [Imperative algorithm for generalised rewriting @sozeau:inria-00628904.]) <rewalgo>
 
 #figure(
 algo(
   row-gutter: 5pt,
-  keywords: ("if", "else", "then", "match", "return", "with", "type"),
+  keywords: ("if", "else", "then", "match", "return", "with", "type", "mvar"),
   title: $"InferRel"$,
-  parameters: ($"res" : mono("RewriteResult")$, $t : "Prop"$)
+  parameters: ($Psi : "List MVar", r : "relation Prop", t : "Prop", p : r space t space u$,)
 )[
-  match res with\
-  $|$ `identity` $=>$#i\ return (`impl_self` : $t <- t$)#d\
-  $|$ `success` ($Psi$, $r$, $u$, $p$) $=>$#i\
-  if r == ($<-$) then#i\ 
-    return p#d\
-  else#i\
-    ?s : Subrelation r ($<-$)\
-    return ?s t u p
-], caption: [Algorithm for Relation Inference.]) <infersub>
-
-There are also two places where a rewrite can occur. It can occur either on the goal we are trying to solve or on a hypothesis that we want to change before applying. Similarly to the direction of the rewrite, we will only consider rewriting on the goal as part of the algorithm. The only required change for the algorithm to also work on a hypotheses, is to change the right-to-left implication $(<-)$ to a left-to-right implication $(->)$. Whenever we mention the right-to-left implication explicitly in this thesis, we could exchange it for $(->)$, so the proof works on the hypotheses.
+  ?s := mvar(Subrelation r ($<-$))\
+  return ?s t u p
+], caption: [Algorithm for relation inference.]) <infersub>
 
 == Example <examplesection>
 

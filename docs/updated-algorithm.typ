@@ -27,27 +27,27 @@ The other case where we we fail to infer (or pass down) the relation is for func
 #figure(
 algo(
   row-gutter: 5pt,
-  keywords: ("if", "else", "then", "match", "return", "with", "type", "for", "in", "do", "foldr"),
+  keywords: ("if", "else", "then", "match", "return", "with", "type", "for", "in", "do", "foldr", "mvar", "hyp"),
   title: $"Subterm"_rho$,
-  parameters: ($Psi$, $t$, $r$)
+  parameters: ($t$, $r$)
 )[
-  ($Psi'$, $r'$, $u'$, unifyable) := $"unify"_rho$($Psi$, $t$)\
-  if unifyable then:#i\
+  ($Psi'$, $r'$, $u'$, unifiable) := $"unify"_rho$($t$)\
+  if unifiable then:#i\
     return ($Psi'$, $r'$, $u'$, $rho$)#d\
   match $t$ with\
   $|$ $e_0 dots e_n$ $=>$#i\
-    ($Psi'$, $"_"$, u, unifyable') := $"unify"_rho$($Psi$, $e_0$)\
-    if unifyable' then:#i\
+    ($Psi'$, $"_"$, u, unifiable') := $"unify"_rho$($e_0$)\
+    if unifiable' then:#i\
       proof := $?_"rel" : "relation" $ type($t$)\
       for $e : tau$ in $e_0 dots e_n$ do#i\
         proof := pointwiseRelation $tau$ proof#d\
-      $?_s$ : Subrelation r proof\
+      $?_s$ := mvar(Subrelation r proof)\
       return ($Psi' union space {?_s, ?_"rel"$}, $?_"rel"$, $u space e_1 space dots space e_n$, $?_s space rho space e_1 space dots space e_n$)#d\
     types, proofs := {}\
     prefixIsId := true\
     fn, u := $e_0$\
     for $e : tau$ in $e_0 dots e_n$ do#i\
-      $(Psi', "result")$ := $"Subterm"_rho$($Psi$, $e$, $?_r : "relation" tau$)\
+      $(Psi', "result")$ := $"Subterm"_rho$($e$, mvar($"relation" tau$))\
       if prefixIsId then#i\
         if $"result" = "identity"$#i\
           fn := fn e\
@@ -57,7 +57,9 @@ algo(
           prefixIsId := false#d#d\
     match result with\
     $|$ identity $=>$#i\
-      $Psi$ := $Psi union {?_r : "relation" tau, ?_p : "ProperProxy" tau space ?_r t}$\
+      $?_r$ := mvar(relation $tau$)\
+      $?_p$ := mvar($"ProperProxy" tau space ?_r t$)\
+      $Psi$ := $Psi union {?_r, ?_p}$\
       types := types ++ ${?_r}$\
       proofs := proofs ++ ${?_p}$\
       u := u e#d\
@@ -68,14 +70,15 @@ algo(
       u := u u'#d#d\
     if pprefixIsId then#i\
       return ($Psi$, identity)#d\
-    $?_p$ := Proper ($"types"_0 ==> dots ==> "types"_n ==> r$) fn\
+    $?_p$ := mvar(Proper ($"types"_0 ==> dots ==> "types"_n ==> r$) fn)\
     return ($Psi$, success ($r$, $u$, $?_p "proofs"_0 dots "proofs"_n$))#d\
 $|$ $lambda$ x : $tau$. b $=>$#i\
+  hyp(x)\
   ($Psi'$, success ($r$, $u$, $p$)) := #smallcaps($"Rew"_rho$)$(Psi, b, r)$\
   return ($Psi'$, pointwiseRelation $tau$ $r$, $lambda$ x : $tau$. u, $lambda$ x : $tau$. p)#d\
 $|$ $forall x : tau, b$ $=>$#i\
-  ($Psi'$, $r$, $u$, unifyable) := $"unify*"_rho$($Psi$, $b$)\
-  if unifyable then:#i\
+  ($Psi'$, $r$, $u$, unifiable) := $"unify*"_rho$($Psi$, $b$)\
+  if unifiable then:#i\
     return ($Psi'$, $r$, $u$, $rho$)#d\
   ($Psi'$, success ($r'$, $"all" (lambda x : tau. b')$, $p$)) := #smallcaps($"Rew"_rho$)$(Psi, "all" (lambda x : tau. b), r)$\
   return ($Psi'$, $r'$, $forall$ x : $tau$, $b'$, $p$)#d\
@@ -85,6 +88,25 @@ $|$ $sigma -> tau$ $=>$#i\
 $|$ t' $=>$#i\
   return ($Psi$, identity)
 ], caption: [Improved Algorithm for Genralised Rewriting.]) <subterm>
+
+We have to adjust the algorithm for relation inference slightly to handle both algorithms. We introduce the new sum type `RewriteResult` with the constructors `identity` and `success`. The `success` constructor holds the same tuple as seen in the `Rew` output and the `identity` constructor holds no further information. The modified version in @infersubp matches for those two constructors and infers the relation only if neccessary.
+
+#figure(
+algo(
+  row-gutter: 5pt,
+  keywords: ("if", "else", "then", "match", "return", "with", "type"),
+  title: $"InferRel"$,
+  parameters: ($"res" : mono("RewriteResult")$, $t : "Prop"$)
+)[
+  match res with\
+  $|$ `identity` $=>$#i\ return (`impl_self` : $t <- t$)#d\
+  $|$ `success` ($Psi$, $r$, $u$, $p$) $=>$#i\
+  if r == ($<-$) then#i\ 
+    return p#d\
+  else#i\
+    ?s : Subrelation r ($<-$)\
+    return ?s t u p
+], caption: [Modified algorithm for relation inference.]) <infersubp>
 
 Let us observe the invocation graph and the generated constraints, similar to what we have seen earlier, for the updated version of the algorithm. In order to highlight the optimisation for leading identity rewrites, we change the example from $(p -> q) and (p -> q)$ to $(q -> p) and (q -> p)$. This has no effect on the original `Rew` algorithm because the number of recursive calls and the amount of generated constraints would not be different. Thus, this example is still suited for a comparison.
 
