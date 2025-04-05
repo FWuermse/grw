@@ -2,7 +2,7 @@
 #import "./theme.typ": *
 = Equality of the Generated Proofs
 
-We saw that, in the typical case, the improved algorithm generates significantly less constraints and leads to more concise proofs. In the following, we want to show that the two proposed algorithms for constraint generation provide the same rewrite proofs although with different metavariables.
+We saw that, in the typical case, the improved algorithm generates significantly fewer constraints and leads to more concise proofs. In the following, we want to show that the two proposed algorithms for constraint generation provide the same rewrite proofs although with different metavariables.
 
 #theorem()[Either the algorithm $mono("Rew")_rho (t : tau)$ provides a proof for $?_r space t space u$ where $?_r$ is of type $mono("relation") space tau$ and $t != u$ for any given $tau$ and $rho$, then the modified algorithm $mono("ORew")_rho (t, ?_r)$ provides either *(1)* a proof for $?_r space t space u$ if the relation inference $?_r$ succeeds (See @updatedalgo) or *(2)* otherwise a proof of $?_r' space t space u$ where $?_r' : mono("relation" space tau)$ is a fresh metavariable of the same type $mono("relation") space tau$. If $t = u$, the $mono("ORew")$ algorithm with the same arguments returns just the flag `identity` whereas the $mono("Rew")$ algorithm provides a proof $p : ?_r space t space t$ *(3)*.] <theorem1>
 
@@ -142,7 +142,7 @@ We saw that, in the typical case, the improved algorithm generates significantly
 
     *Proof Resulting from ORew*
 
-    When a previous rewrite occurrd, we have to consider two sub-cases. Either the rewrite occurred on the very first argument $e_0$ and thus constructs a pointwise relation chain or some arguments of $e_1 space dots e_n$ were rewritten in which case we must consider a respectful chain.
+    When a previous rewrite occurred, we have to consider two sub-cases. Either the rewrite occurred on the very first argument $e_0$ and thus constructs a pointwise relation chain or some arguments of $e_1 space dots e_n$ were rewritten in which case we must consider a respectful chain.
 
     In the case of the successful rewrite on $e_1 space dots space e_n$, we obtain the desired proof $r_tau space (e_0 space dots space e_n space e_(n+1)) space (e_0 space space e_1 ' space dots space e_n ' space e_(n+1))$ given the newly created carrier relation $r_e_(n+1) : mono("relation") space alpha_(n+1)$ and identity proof $p_e_(n+1) : r_e_(n+1) space e_(n+1) space e_(n+1)$. When combined like the following, the proofs of `ORew` and `Rew` are already of equal type, and the assumption *(1)* holds directly:
 

@@ -87,7 +87,7 @@ $|$ t' $=>$#i\
   return ($Psi$, identity)
 ], caption: [Improved algorithm for rewriting.]) <subterm>
 
-We have to adjust the algorithm for relation inference slightly to handle both algorithms. We introduce the new sum type `RewriteResult` with the constructors `identity` and `success`. The `success` constructor holds the same tuple as seen in the `Rew` output and the `identity` constructor holds no further information. The modified version in @infersubp matches for those two constructors and infers the relation only if neccessary.
+We have to adjust the algorithm for relation inference slightly to handle both algorithms. We introduce the new sum type `RewriteResult` with the constructors `identity` and `success`. The `success` constructor holds the same tuple as seen in the `Rew` output and the `identity` constructor holds no further information. The modified version in @infersubp matches for those two constructors and infers the relation only if necessary.
 
 #figure(
 algo(

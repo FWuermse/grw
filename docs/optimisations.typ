@@ -2,7 +2,7 @@
 #import "./theme.typ": *
 = Optimisations
 
-The actual Coq implementation of generalised rewriting contains a few optimisations that were not mentioned in the paper or documentation. Through reverse engineering a large amount of the Coq core module, we were able to extract the most crucial optimisations and applied them to our imperative algorithm specification. The alogrithm we have seen so far stresses the rewriting of applications and aims to convert other terms into application-terms. Thus, most of the following optimisations focus on simplifying rewrite proofs for application terms.
+The actual Coq implementation of generalised rewriting contains a few optimisations that were not mentioned in the paper or documentation. Through reverse engineering a large amount of the Coq core module, we were able to extract the most crucial optimisations and applied them to our imperative algorithm specification. The algorithm we have seen so far stresses the rewriting of applications and aims to convert other terms into application-terms. Thus, most of the following optimisations focus on simplifying rewrite proofs for application terms.
 
 == Identity and Success Status <idsuccstatus>
 
