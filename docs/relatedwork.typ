@@ -1,3 +1,4 @@
+#pagebreak()
 = Related Work
 
 There has been two major approaches in the Lean community to implement generalised rewriting. The first one is an open pull request on the Github repository for Lean's mathematics library @mathlib. This implementation provides a tactic that focuses on solving inequality rewrites only, and thus is not a general rewriting algorithm. This approach is mostly based on the automated application of theorems about transitivity of relations.
