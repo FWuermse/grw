@@ -4,7 +4,7 @@
 
 We saw that, in the typical case, the improved algorithm generates significantly fewer constraints and leads to more concise proofs. In the following, we want to show that the two proposed algorithms for constraint generation provide the same rewrite proofs although with different metavariables.
 
-#theorem()[Either the algorithm $mono("Rew")_rho (t : tau)$ provides a proof for $?_r space t space u$ where $?_r$ is of type $mono("relation") space tau$ and $t != u$ for any given $tau$ and $rho$, then the modified algorithm $mono("ORew")_rho (t, ?_r)$ provides either *(1)* a proof for $?_r space t space u$ if the relation inference $?_r$ succeeds (See @updatedalgo) or *(2)* otherwise a proof of $?_r' space t space u$ where $?_r' : mono("relation" space tau)$ is a fresh metavariable of the same type $mono("relation") space tau$. If $t = u$, the $mono("ORew")$ algorithm with the same arguments returns just the flag `identity` whereas the $mono("Rew")$ algorithm provides a proof $p : ?_r space t space t$ *(3)*.] <theorem1>
+#theorem()[When the algorithm $mono("Rew")_rho (t : tau)$ provides a proof for $?_r space t space u$ where $?_r$ is of type $mono("relation") space tau$ and $t != u$ for any given $tau$ and $rho$, then the modified algorithm $mono("ORew")_rho (t, ?_r)$ provides either *(1)* a proof for $?_r space t space u$ if the relation inference $?_r$ succeeds (See @updatedalgo) or *(2)* otherwise a proof of $?_r' space t space u$ where $?_r' : mono("relation" space tau)$ is a fresh metavariable of the same type $mono("relation") space tau$. If $t = u$, the $mono("ORew")$ algorithm with the same arguments returns just the flag `identity` whereas the $mono("Rew")$ algorithm provides a proof $p : ?_r space t space t$ *(3)*.] <theorem1>
 
 #proof()[We proceed with structural induction over the term $t$. The cases for lambda, pi, and arrow only differ by the additional status field. It suffices to show that applying a proof of identity ($?_r space t space t$) is equivalent to leaving $t$ unchanged *(3)*. The application case can be proven by induction over the application subterms $e_0 space dots space e_n$. We start with the base case $n = 2$ (a function with one argument) and have to consider the three cases (identity, success), (success, identity), and (identity, identity) under the assumption that the case (success, success) is not possible for a binary well-formed Lean application. This is because for any $f space e$, the types $f : sigma_0 -> dots -> sigma_n -> tau$ and $e : sigma_0$ cannot be the same, thus cannot both unify. For simplicity we denote the left-hand side of the rewrite theorem $rho$ as $rho_"lhs"$ in the following cases:
 
@@ -82,7 +82,7 @@ We saw that, in the typical case, the improved algorithm generates significantly
     ]$
 
     *Proof Resulting from ORew*:\
-      `ORew` would simply return `identity` for such a rewrite exiting at line 37 in @subterm. As `Rew` returns proof of $r_tau space t space t$, this case also holds *(3)*.
+      `ORew` would simply return `identity` for such a rewrite exiting at line 40 in @subterm. As `Rew` returns proof of $r_tau space t space t$, this case also holds *(3)*.
 
 - *Inductive case for $n + 1$ application subterms*
 
@@ -217,7 +217,7 @@ We saw that, in the typical case, the improved algorithm generates significantly
 
     *Proof Resulting from ORew*
 
-    The subterm algorithm terminates at line 37 in @subterm and merely returns `identity` which holds under our assumption *(3)* because `Rew` algorithm provides a proof of $r_tau space t space t$ in this case.
+    The subterm algorithm terminates at line 40 in @subterm and merely returns `identity` which holds under our assumption *(3)* because `Rew` algorithm provides a proof of $r_tau space t space t$ in this case.
     ]
 
     To show that both algorithms result in the same rewrite of propositions, we need to prove another theorem about the transition to implications.
