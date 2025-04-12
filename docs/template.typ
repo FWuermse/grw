@@ -22,8 +22,8 @@
 )
 
 
-#let example = thmplain("example", "Example")
-#let proof = thmproof("proof", "Proof")
+#let example = thmplain("example", "Example").with(number: none)
+#let proof = thmproof("proof", "Proof").with(number: none)
 
 #let dotrender = raw-render
 
