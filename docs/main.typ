@@ -21,7 +21,7 @@
 #set page(numbering : "1")
 
 #counter(page).update(1)
-#set cite(style: "institute-of-physics-numeric")
+#set cite(style: "the-institution-of-engineering-and-technology")
 
 #include "introduction.typ"
 
