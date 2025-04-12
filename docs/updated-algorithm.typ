@@ -3,9 +3,11 @@
 #import "./theme.typ": *
 #import "./graph.typ": *
 
-== Updated Algorithm Specification <updatedalgo>
+= Optimised Algorithm for Rewriting
 
 We have seen five improvements to the `Rew` algorithm for constraint and proof generation of a rewrite. We will now propose an updated algorithm that combines all mentioned optimisations. This roughly resembles the algorithm that has evolved in the Coq core library over the last decade by combining the algorithms for Leibniz Equality rewriting, rewriting under binders, generalised rewriting, and the `setoid_rewrite` module.
+
+== Improved Algorithm Specification <updatedalgo>
 
 We call the algorithm in @subterm `ORew` as it is an optimised version of the previously seen `Rew` algorithm. The `ORew` algorithm has an additional argument $r$ that refers to the relation that is now passed down from the top rather than being inferred at the end. Similarly to `Rew`, we first check whether the input term $t$ unifies directly and return in that case. Otherwise, we follow a similar pattern matching approach.
 
@@ -142,7 +144,7 @@ algo(
     return ?s t u p
 ], caption: [Modified algorithm for relation inference.]) <infersubp>
 
-== Example
+== Illustrated Generation of Refined Proofs
 
 Let us observe the call tree and the generated constraints, similar to what we have seen earlier, for the updated version of the algorithm. In order to highlight the optimisation for leading identity rewrites, we change the example from $(p -> q) and (p -> q)$ to $(q -> p) and (q -> p)$. This has no effect on the original `Rew` algorithm because the number of recursive calls and the amount of generated constraints would not be different. Thus, this example is still suited for a comparison.
 

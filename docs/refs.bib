@@ -1,176 +1,220 @@
-@article{iris, title={Iris from the ground up: A modular foundation for higher-order concurrent separation logic}, volume={28}, DOI={10.1017/S0956796818000151}, journal={Journal of Functional Programming}, author={JUNG, RALF and KREBBERS, ROBBERT and JOURDAN, JACQUES-HENRI and BIZJAK, ALEŠ and BIRKEDAL, LARS and DREYER, DEREK}, year={2018}, pages={e20}} <div></div>
+@article{iris,
+  title   = {Iris from the ground up: A modular foundation for higher-order concurrent separation logic},
+  volume  = {28},
+  doi     = {10.1017/S0956796818000151},
+  journal = {Journal of Functional Programming},
+  author  = {JUNG, RALF and KREBBERS, ROBBERT and JOURDAN, JACQUES-HENRI and BIZJAK, ALEŠ and BIRKEDAL, LARS and DREYER, DEREK},
+  year    = {2018},
+  pages   = {e20}
+} <div></div>
 
 @article{sozeau:inria-00628904,
-  TITLE = {{A New Look at Generalized Rewriting in Type Theory}},
-  AUTHOR = {Sozeau, Matthieu},
-  URL = {https://inria.hal.science/inria-00628904},
-  JOURNAL = {{Journal of Formalized Reasoning}},
-  PUBLISHER = {{ASDD-AlmaDL}},
-  VOLUME = {2},
-  NUMBER = {1},
-  PAGES = {41-62},
-  YEAR = {2009},
-  MONTH = Dec,
-  HAL_ID = {inria-00628904},
-  HAL_VERSION = {v1},
+  title       = {{A New Look at Generalized Rewriting in Type Theory}},
+  author      = {Sozeau, Matthieu},
+  url         = {https://inria.hal.science/inria-00628904},
+  journal     = {{Journal of Formalized Reasoning}},
+  publisher   = {{ASDD-AlmaDL}},
+  volume      = {2},
+  number      = {1},
+  pages       = {41-62},
+  year        = {2009},
+  month       = Dec,
+  hal_id      = {inria-00628904},
+  hal_version = {v1}
 }
 
 @manual{coqmorphism,
-  title        = "Library Coq.Classes.Morphisms",
-  author       = "Matthieu Sozeau",
-  organization = "LRI, CNRS UMR 8623 - University Paris Sud",
-  address      = "https://rocq-prover.org/doc/v8.20/stdlib/Coq.Classes.Morphisms.html",
-  edition      = "20",
-  month        = "September",
-  year         = "2024",
+  title        = {Library Coq.Classes.Morphisms},
+  author       = {Matthieu Sozeau},
+  organization = {LRI, CNRS UMR 8623 - University Paris Sud},
+  address      = {https://rocq-prover.org/doc/v8.20/stdlib/Coq.Classes.Morphisms.html},
+  edition      = {20},
+  month        = {September},
+  year         = {2024}
 }
 
 @misc{casteran:hal-00702455,
-  TITLE = {{A gentle introduction to type classes and relations in Coq}},
-  AUTHOR = {Cast{\'e}ran, Pierre and Sozeau, Matthieu},
-  URL = {https://hal.science/hal-00702455},
-  NOTE = {This document presents the main features of type classes and user-defined relations in the Coq proof assistant. Available at http://www.labri.fr/perso/casteran/CoqArt/TypeClassesTut/typeclassestut.pdf},
-  YEAR = {2012},
-  MONTH = May,
-  HAL_ID = {hal-00702455},
-  HAL_VERSION = {v1},
+  title       = {{A gentle introduction to type classes and relations in Coq}},
+  author      = {Cast{\'e}ran, Pierre and Sozeau, Matthieu},
+  url         = {https://hal.science/hal-00702455},
+  note        = {This document presents the main features of type classes and user-defined relations in the Coq proof assistant. Available at http://www.labri.fr/perso/casteran/CoqArt/TypeClassesTut/typeclassestut.pdf},
+  year        = {2012},
+  month       = May,
+  hal_id      = {hal-00702455},
+  hal_version = {v1}
 }
 
 @misc{selsam2020tabledtypeclassresolution,
-      title={Tabled Typeclass Resolution}, 
-      author={Daniel Selsam and Sebastian Ullrich and Leonardo de Moura},
-      year={2020},
-      eprint={2001.04301},
-      archivePrefix={arXiv},
-      primaryClass={cs.PL},
-      url={https://arxiv.org/abs/2001.04301}, 
+  title         = {Tabled Typeclass Resolution},
+  author        = {Daniel Selsam and Sebastian Ullrich and Leonardo de Moura},
+  year          = {2020},
+  eprint        = {2001.04301},
+  archiveprefix = {arXiv},
+  primaryclass  = {cs.PL},
+  url           = {https://arxiv.org/abs/2001.04301}
 }
 
 @inproceedings{aesop,
-author = {Limperg, Jannis and From, Asta Halkj\ae{}r},
-title = {Aesop: White-Box Best-First Proof Search for Lean},
-year = {2023},
-isbn = {9798400700262},
-publisher = {Association for Computing Machinery},
-address = {New York, NY, USA},
-url = {https://doi.org/10.1145/3573105.3575671},
-doi = {10.1145/3573105.3575671},
-abstract = {We present Aesop, a proof search tactic for the Lean 4 interactive  
-theorem prover. Aesop performs a tree-based search over a user-specified  
-set of proof rules. It supports safe and unsafe rules and uses a best-first  
-search strategy with customisable prioritisation. Aesop also allows users  
-to register custom normalisation rules and integrates Lean's simplifier to  
-support equational reasoning. Many details of Aesop's search procedure are  
-designed to make it a white-box proof automation tactic, meaning that users  
-should be able to easily predict how their rules will be applied, and thus how  
-powerful and fast their Aesop invocations will be.  
-
-Since we use a best-first search strategy, it is not obvious how to handle  
-metavariables which appear in multiple goals. The most common strategy for  
-dealing with metavariables relies on backtracking and is therefore not  
-suitable for best-first search. We give an algorithm which addresses this  
-issue. The algorithm works with any search strategy, is independent of the  
-underlying logic and makes few assumptions about how rules interact with  
-metavariables. We conjecture that with a fair search strategy, the algorithm  
-is as complete as the given set of rules allows.},
-booktitle = {Proceedings of the 12th ACM SIGPLAN International Conference on Certified Programs and Proofs},
-pages = {253–266},
-numpages = {14},
-keywords = {type theory, tactic, proof search, interactive theorem proving, deductive verification, Lean},
-location = {Boston, MA, USA},
-series = {CPP 2023}
+  author    = {Limperg, Jannis and From, Asta Halkj\ae{}r},
+  title     = {Aesop: White-Box Best-First Proof Search for Lean},
+  year      = {2023},
+  isbn      = {9798400700262},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3573105.3575671},
+  doi       = {10.1145/3573105.3575671},
+  abstract  = {We present Aesop, a proof search tactic for the Lean 4 interactive  
+               theorem prover. Aesop performs a tree-based search over a user-specified  
+               set of proof rules. It supports safe and unsafe rules and uses a best-first  
+               search strategy with customisable prioritisation. Aesop also allows users  
+               to register custom normalisation rules and integrates Lean's simplifier to  
+               support equational reasoning. Many details of Aesop's search procedure are  
+               designed to make it a white-box proof automation tactic, meaning that users  
+               should be able to easily predict how their rules will be applied, and thus how  
+               powerful and fast their Aesop invocations will be.  
+               
+               Since we use a best-first search strategy, it is not obvious how to handle  
+               metavariables which appear in multiple goals. The most common strategy for  
+               dealing with metavariables relies on backtracking and is therefore not  
+               suitable for best-first search. We give an algorithm which addresses this  
+               issue. The algorithm works with any search strategy, is independent of the  
+               underlying logic and makes few assumptions about how rules interact with  
+               metavariables. We conjecture that with a fair search strategy, the algorithm  
+               is as complete as the given set of rules allows.},
+  booktitle = {Proceedings of the 12th ACM SIGPLAN International Conference on Certified Programs and Proofs},
+  pages     = {253–266},
+  numpages  = {14},
+  keywords  = {type theory, tactic, proof search, interactive theorem proving, deductive verification, Lean},
+  location  = {Boston, MA, USA},
+  series    = {CPP 2023}
 }
 
 @article{discrtree,
-author = {McCune, William},
-title = {Experiments with discrimination-tree indexing and path indexing for term retrieval},
-year = {1992},
-issue_date = {Oct. 1992},
-publisher = {Springer-Verlag},
-address = {Berlin, Heidelberg},
-volume = {9},
-number = {2},
-issn = {0168-7433},
-url = {https://doi.org/10.1007/BF00245458},
-doi = {10.1007/BF00245458},
-journal = {J. Autom. Reason.},
-month = oct,
-pages = {147–167},
-numpages = {21},
-keywords = {path indexing, indexing, discrimination net, automated deduction, FPA indexing}
+  author     = {McCune, William},
+  title      = {Experiments with discrimination-tree indexing and path indexing for term retrieval},
+  year       = {1992},
+  issue_date = {Oct. 1992},
+  publisher  = {Springer-Verlag},
+  address    = {Berlin, Heidelberg},
+  volume     = {9},
+  number     = {2},
+  issn       = {0168-7433},
+  url        = {https://doi.org/10.1007/BF00245458},
+  doi        = {10.1007/BF00245458},
+  journal    = {J. Autom. Reason.},
+  month      = oct,
+  pages      = {147–167},
+  numpages   = {21},
+  keywords   = {path indexing, indexing, discrimination net, automated deduction, FPA indexing}
 }
 
 @inproceedings{unification,
-  author       = {Jacques Corbin and
-                  Michel Bidoit},
-  editor       = {R. E. A. Mason},
-  title        = {A Rehabilitation of Robinson's Unification Algorithm},
-  booktitle    = {Information Processing 83, Proceedings of the {IFIP} 9th World Computer
-                  Congress, Paris, France, September 19-23, 1983},
-  pages        = {909--914},
-  publisher    = {North-Holland/IFIP},
-  year         = {1983},
-  timestamp    = {Sun, 28 Jul 2019 17:03:41 +0200},
-  biburl       = {https://dblp.org/rec/conf/ifip/CorbinB83.bib},
-  bibsource    = {dblp computer science bibliography, https://dblp.org}
+  author    = {Jacques Corbin and
+               Michel Bidoit},
+  editor    = {R. E. A. Mason},
+  title     = {A Rehabilitation of Robinson's Unification Algorithm},
+  booktitle = {Information Processing 83, Proceedings of the {IFIP} 9th World Computer
+               Congress, Paris, France, September 19-23, 1983},
+  pages     = {909--914},
+  publisher = {North-Holland/IFIP},
+  year      = {1983},
+  timestamp = {Sun, 28 Jul 2019 17:03:41 +0200},
+  biburl    = {https://dblp.org/rec/conf/ifip/CorbinB83.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
 }
 
 @article{carneiro2019type,
-  title={The type theory of Lean},
-  author={Carneiro, Mario},
-  journal={preparation (https://github. com/digama0/lean-type-theory/releases)},
-  year={2019}
+  title   = {The type theory of Lean},
+  author  = {Carneiro, Mario},
+  journal = {preparation (https://github. com/digama0/lean-type-theory/releases)},
+  year    = {2019}
 }
 
 @article{schonfinkel1924bausteine,
-  title={{\"U}ber die Bausteine der mathematischen Logik},
-  author={Sch{\"o}nfinkel, Moses},
-  journal={Mathematische annalen},
-  volume={92},
-  number={3},
-  pages={305--316},
-  year={1924},
-  publisher={Springer}
+  title     = {{\"U}ber die Bausteine der mathematischen Logik},
+  author    = {Sch{\"o}nfinkel, Moses},
+  journal   = {Mathematische annalen},
+  volume    = {92},
+  number    = {3},
+  pages     = {305--316},
+  year      = {1924},
+  publisher = {Springer}
 }
 
 @book{curry,
-author = {Curry, Haskell B. (Haskell Brooks) and Hindley, J. Roger. and Seldin, J. P.},
-address = {London ;},
-booktitle = {To H.B. Curry : essays on combinatory logic, lambda calculus, and formalism},
-isbn = {0123490502},
-keywords = {Curry Haskell B (Haskell Brooks) 1900-1982 ; Logic Symbolic and mathematical ; Logic Symbolic and mathematical Addresses essays lectures},
-language = {eng},
-lccn = {80040139},
-publisher = {Academic Press},
-title = {To H.B. Curry : essays on combinatory logic, lambda calculus, and formalism },
-year = {1980},
+  author    = {Curry, Haskell B. (Haskell Brooks) and Hindley, J. Roger. and Seldin, J. P.},
+  address   = {London ;},
+  booktitle = {To H.B. Curry : essays on combinatory logic, lambda calculus, and formalism},
+  isbn      = {0123490502},
+  keywords  = {Curry Haskell B (Haskell Brooks) 1900-1982 ; Logic Symbolic and mathematical ; Logic Symbolic and mathematical Addresses essays lectures},
+  language  = {eng},
+  lccn      = {80040139},
+  publisher = {Academic Press},
+  title     = {To H.B. Curry : essays on combinatory logic, lambda calculus, and formalism },
+  year      = {1980}
 }
 
 @inproceedings{mathlib,
-author = {The mathlib Community},
-title = {The lean mathematical library},
-year = {2020},
-isbn = {9781450370974},
-publisher = {Association for Computing Machinery},
-address = {New York, NY, USA},
-url = {https://doi.org/10.1145/3372885.3373824},
-doi = {10.1145/3372885.3373824},
-abstract = {This paper describes mathlib, a community-driven effort to build a unified library of mathematics formalized in the Lean proof assistant. Among proof assistant libraries, it is distinguished by its dependently typed foundations, focus on classical mathematics, extensive hierarchy of structures, use of large- and small-scale automation, and distributed organization. We explain the architecture and design decisions of the library and the social organization that has led to its development.},
-booktitle = {Proceedings of the 9th ACM SIGPLAN International Conference on Certified Programs and Proofs},
-pages = {367–381},
-numpages = {15},
-keywords = {mathlib, formal proof, formal library, Lean},
-location = {New Orleans, LA, USA},
-series = {CPP 2020}
+  author    = {The mathlib Community},
+  title     = {The lean mathematical library},
+  year      = {2020},
+  isbn      = {9781450370974},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  url       = {https://doi.org/10.1145/3372885.3373824},
+  doi       = {10.1145/3372885.3373824},
+  abstract  = {This paper describes mathlib, a community-driven effort to build a unified library of mathematics formalized in the Lean proof assistant. Among proof assistant libraries, it is distinguished by its dependently typed foundations, focus on classical mathematics, extensive hierarchy of structures, use of large- and small-scale automation, and distributed organization. We explain the architecture and design decisions of the library and the social organization that has led to its development.},
+  booktitle = {Proceedings of the 9th ACM SIGPLAN International Conference on Certified Programs and Proofs},
+  pages     = {367–381},
+  numpages  = {15},
+  keywords  = {mathlib, formal proof, formal library, Lean},
+  location  = {New Orleans, LA, USA},
+  series    = {CPP 2020}
 }
 
 @article{eauto,
-author = {Czajka, Łukasz and Kaliszyk, Cezary},
-year = {2016},
-month = {06},
-pages = {13-20},
-title = {Goal Translation for a Hammer for Coq (Extended Abstract)},
-volume = {210},
-journal = {Electronic Proceedings in Theoretical Computer Science},
-doi = {10.4204/EPTCS.210.4}
+  author  = {Czajka, Łukasz and Kaliszyk, Cezary},
+  year    = {2016},
+  month   = {06},
+  pages   = {13-20},
+  title   = {Goal Translation for a Hammer for Coq (Extended Abstract)},
+  volume  = {210},
+  journal = {Electronic Proceedings in Theoretical Computer Science},
+  doi     = {10.4204/EPTCS.210.4}
+}
+
+@book{lambdacalc,
+  place      = {Cambridge},
+  series     = {Perspectives in Logic},
+  title      = {Lambda Calculus with Types},
+  publisher  = {Cambridge University Press},
+  author     = {Barendregt, Henk and Dekkers, Wil and Statman, Richard},
+  year       = {2013},
+  collection = {Perspectives in Logic}
+}
+
+@article{metaprogrammingbook,
+  title   = {Metaprogramming in Lean 4},
+  author  = {Paulino, Arthur and Testa, Damiano and Ayers, Edward and Karunus, Evgenia and Böving, Henrik and Limperg, Jannis and Gadgil, Siddhartha and Bhat, Siddharth},
+  journal = {preparation (https://leanprover-community.github.io/lean4-metaprogramming-book)},
+  year    = {2025}
+}
+
+@article{ullrich,
+  author     = {Ebner, Gabriel and Ullrich, Sebastian and Roesch, Jared and Avigad, Jeremy and de Moura, Leonardo},
+  title      = {A metaprogramming framework for formal verification},
+  year       = {2017},
+  issue_date = {September 2017},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {1},
+  number     = {ICFP},
+  url        = {https://doi.org/10.1145/3110278},
+  doi        = {10.1145/3110278},
+  abstract   = {We describe the metaprogramming framework currently used in Lean, an interactive theorem prover based on dependent type theory. This framework extends Lean's object language with an API to some of Lean's internal structures and procedures, and provides ways of reflecting object-level expressions into the metalanguage. We provide evidence to show that our implementation is performant, and that it provides a convenient and flexible way of writing not only small-scale interactive tactics, but also more substantial kinds of automation.},
+  journal    = {Proc. ACM Program. Lang.},
+  month      = aug,
+  articleno  = {34},
+  numpages   = {29},
+  keywords   = {dependent type theory, metaprogramming, tactic language, theorem proving}
 }

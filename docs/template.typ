@@ -21,6 +21,7 @@
   inset: (x: 1.2em, top: 1em)
 )
 
+
 #let example = thmplain("example", "Example")
 #let proof = thmproof("proof", "Proof")
 
@@ -124,7 +125,7 @@
   v(5%)
   text(14pt)[#thesis-type]
   linebreak()
-  text(14pt)[in course type Computer Science]
+  text(14pt)[in Computer Science]
 
   // Author information
   v(1fr) // push to bottom

@@ -1,8 +1,9 @@
 #import "./template.typ": *
 #import "./theme.typ": *
-= Equality of the Generated Proofs
 
-We saw that, in the typical case, the improved algorithm generates significantly fewer constraints and leads to more concise proofs. In the following, we want to show that the two proposed algorithms for constraint generation `Rew` and `ORew` provide the same rewrite proofs although with different metavariables.
+= Equivalence of the Generated Rewrite Proofs
+
+We saw that, in the typical case, the improved algorithm generates significantly fewer constraints and leads to more concise proofs. In the following, we want to show that the two proposed algorithms for constraint generation `Rew` and `ORew` provide the same rewrite proofs although with different constraints. The constraints still consist of metavariables of the types `relation`, `pointwiseRelation`, `Subrelation`, and `Proper` but in a more consise way.
 
 #theorem()[When the algorithm $mono("Rew")_rho (t : tau)$ provides a proof for $?_r space t space u$ where $?_r$ is of type $mono("relation") space tau$ and $t != u$ for any given $tau$ and $rho$, then the modified algorithm $mono("ORew")_rho (t, ?_r)$ provides either *(1)* a proof for $?_r space t space u$ if the relation inference $?_r$ succeeds (see @updatedalgo) or *(2)* otherwise a proof of $?_r' space t space u$ where $?_r' : mono("relation" space tau)$ is a fresh metavariable of the same type $mono("relation") space tau$. If $t = u$, the $mono("ORew")$ algorithm with the same arguments returns just the flag `identity` whereas the $mono("Rew")$ algorithm provides a proof $p : ?_r space t space t$ *(3)*.] <theorem1>
 
@@ -93,7 +94,7 @@ We saw that, in the typical case, the improved algorithm generates significantly
     We must now also show that:\ $(Psi', r, e_0 ' space dots space e_(n+1) ', p : r space (e_0 space dots space e_(n+1)) space (e_0 ' space dots e_(n+1) ')) := mono("Rew"_rho) (e_0 space dots space e_(n+1) ')$ implies:\
     $(Psi'', r', e_0 ' space dots space e_(n+1) ', p' : r' space (e_0 space dots space e_(n+1)) space (e_0 ' space dots space e_(n+1) ')) := mono("ORew"_rho) (e_0 space dots space e_(n+1), r)$ \ if $e_0 space dots space e_(n+1) != e_0 ' space dots space e_(n+1) '$ and $(Psi'', mono("identity")) := mono("ORew"_rho) (e_0 space dots space e_(n+1), r)$ otherwise.
 
-    There are four cases for the inductive step. Given the previous sequence was an identity rewrite, we must divide between another identity rewrite or a successful rewrite. If the previous sequence contains at least one successful rewrite, we also have the scenarios of another rewrite or a final identity. This differentiation is crucial to align with the Leading Identity Rewrite and the Identity and Success Status optimisations.
+    There are four cases for the inductive step. Given the previous sequence was an identity rewrite, we must divide between another identity rewrite or a successful rewrite. If the previous sequence contains at least one successful rewrite, we also have the scenarios of another rewrite or a final identity. This differentiation is crucial to align with the optimisations for Leading Identity Rewrites and Status for Identity Rewrites.
 
   - *Case $e_0 space dots space e_n space e_(n+1)$ where we rewrote $e_0 space dots space e_n$ and $e_(n+1)$ unifies with $rho_"lhs"$*
 
