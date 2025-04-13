@@ -2,8 +2,8 @@ import Lean.Elab.Tactic
 import Lean.Elab.Term
 import Grw.Attribute
 import Grw.Morphism
-import Grw.Eauto
 import Grw.PaperTactic
+import Grw.ProofSearch
 import Batteries
 
 open Lean
@@ -252,202 +252,6 @@ partial def subterm (t : Expr) (desiredRel : Option Expr) (l2r : Bool) (depth : 
     trace[Meta.Tactic.grewrite] "{srep depth} |ATOM {t}"
     pure ([], .id)
 
-/--
-See (https://github.com/coq/coq/pull/13969)[Coq]
--/
-private def inferRelation (goal : MVarId) (name : Name) : MetaM <| List MVarId := do
-  let type ← goal.getType
-  let .app (.const ``relation _) (.sort 0) := type | throwError "Cannot infer relation"
-  goal.apply <| ← mkConstWithFreshMVarLevels name
-
-private def solveRespectfulN (goal : MVarId) : MetaM MVarId := do
-  -- check if goal is isolated respectful chain
-  let type ← goal.getType
-  let isLam := (← whnf type.getAppFn).isLambda
-  let type ← inferType type.getAppFn
-  if let .app (.const ``relation _) arrow := type then
-    if (← whnf arrow).arrow?.isSome && isLam then
-      let subgoal ← unfoldTarget goal ``respectful
-      let subgoal ← subgoal.intros
-      return subgoal.snd
-  throwError m!"{type} is not of type (τ₀ ⟹ ... ⟹ τₙ)"
-
-private def unfoldName (name : Name) (goal : MVarId) : MetaM MVarId := do
-  let type ← goal.getType
-  let hasFlip := type.find? (
-    match . with
-    | .const n _ => n == name
-    | _ => false)
-  if hasFlip.isSome then
-    return ← unfoldTarget goal name
-  throwError m!"No definition {name} occurs in term {type}"
-
-private def unfoldSymRflTran (goal : MVarId) : MetaM MVarId := do
-  for constructor in [``Reflexive.mk, ``Symmetric.mk, ``Transitive.mk] do
-    try
-      let unfoldRefl := mkConstWithFreshMVarLevels constructor
-      let subgoals ← commitIfNoEx do goal.apply (← unfoldRefl)
-      let subgoals ← subgoals.mapM MVarId.intros
-      -- TODO: does invariant subgoal.length == 1 hold?
-      return subgoals.get! 0 |>.snd
-    catch _ =>
-      continue
-  throwError "All constructors failed"
-
-abbrev NewGoalsM := MetaM <| List MVarId
-
-private def tryTactic (subgoals : List MVarId) (name : String) (tactic : MVarId → MetaM MVarId) : NewGoalsM := do
-  let mut subgoals := subgoals
-  for goal in subgoals do
-    try
-      let unfolded ← tactic goal
-      subgoals := subgoals.replace goal unfolded
-      trace[Meta.Tactic.grewrite]m!"✅️ applied tactic {name} on {← goal.getType}, now: {← unfolded.getType}"
-    catch _ =>
-      trace[Meta.Tactic.grewrite]m!"No progress with {name}: {← goal.getType}"
-  return subgoals
-
-private def tryHyp (goal : MVarId) (hyp : Expr) : MetaM <| Except MVarId <| List MVarId := do
-  let mut subgoals := []
-  try
-    subgoals ← goal.apply hyp
-    trace[Meta.Tactic.grewrite]m!"✅️ applied hint {hyp}"
-    return .ok subgoals
-  catch e =>
-    trace[Meta.Tactic.grewrite]m!"\t❌️ Could not apply hint: \n\t {e.toMessageData}"
-    return .error goal
-
-private def relCmp (a b : Expr) : MetaM Bool := do
-  let T₁ ← match a with
-  | .app (.const ``relation _) T => pure T
-  | .forallE _ T (.forallE _ T' b _) _ =>
-    if T == T' && b == .sort 0 then
-      pure T
-    else
-      return false
-  | _ => return false
-  let T₂ ← match b with
-  | .app (.const ``relation _) T => pure T
-  | .forallE _ T (.forallE _ T' b _) _ =>
-    if T == T' && b == .sort 0 then
-      pure T
-    else
-      return false
-  | _ => return false
-  return T₁ == T₂
-
-private def tryClose (goals : List MVarId) : TacticM Bool := do
-  for goal in goals do
-    try
-      goal.assumption
-      trace[Meta.Tactic.grewrite]m!"✅️ assumption solved goal {← goal.getType}"
-    catch _ =>
-      trace[Meta.Tactic.grewrite]m!"❌️ Assumption on {← goal.getType} failed"
-  if goals.isEmpty then
-    trace[Meta.Tactic.grewrite]"🏁 no more open goals"
-    return true
-  /-
-  TODO: store tactics based on what they could possibly simplify (e.G. Proper for solveProper)
-  Check mathlib for tactic registration. (see Lean.registerTagAttribute, persistantEnvExtension)
-  Env extension as discrtree (check simp attribute)
-  serialise Discrtree keys
-  -/
-  let mut subgoals := goals
-  subgoals ← tryTactic subgoals "unfoldSRT" (unfoldSymRflTran)
-  subgoals ← tryTactic subgoals "⟹...⟹" (solveRespectfulN)
-  subgoals ← tryTactic subgoals "unfold flip" (unfoldName ``flip)
-  subgoals ← tryTactic subgoals "unfold impl" (unfoldName ``impl)
-  let sc ← Simp.Context.mkDefault
-  subgoals ← tryTactic subgoals "simp_all" fun g => do
-    match ← simpAll g sc with
-    | (.some r, _) => pure r
-    | (_, _) => throwError "simp_all made no progress"
-  if subgoals.isEmpty then
-    trace[Meta.Tactic.grewrite]"🏁 no more open goals"
-    return true
-  else
-    return false
-
-partial def dfs (goals : List MVarId) (hintDB : DiscrTree Name) (ρ : HypInfo) : TacticM (List MVarId) := do
-  withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"search") do
-  for goal in goals do
-    let mut subgoals := []
-    let goalType ← goal.getType
-    trace[Meta.Tactic.grewrite]m!"trying goal: {goalType}"
-    let mut s ← saveState
-    try
-      goal.assumption
-      trace[Meta.Tactic.grewrite]m!"✅️ assumption solved goal {goalType}"
-    catch _ =>
-      trace[Meta.Tactic.grewrite]m!"❌️ Assumption on {goalType} failed"
-    let matchingHints ← hintDB.getMatch goalType
-    if ← relCmp goalType (← inferType ρ.rel) then
-      try
-        subgoals ← goal.apply ρ.rel
-        trace[Meta.Tactic.grewrite]m!"✅️ applied hint {ρ.rel}"
-        subgoals ← dfs (goals.filter (. != goal) ++ subgoals) hintDB ρ
-        if subgoals.isEmpty then
-          trace[Meta.Tactic.grewrite]"🏁 no more open goals"
-          return subgoals
-      catch e =>
-        trace[Meta.Tactic.grewrite]m!"❌️ Could not apply hint"
-        continue
-    for matchingHint in matchingHints do
-      trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {matchingHint}"
-      try
-        subgoals ← goal.apply (← mkConstWithFreshMVarLevels matchingHint)
-        trace[Meta.Tactic.grewrite]m!"✅️ applied hint {matchingHint}"
-        subgoals ← dfs (goals.filter (. != goal) ++ subgoals) hintDB ρ
-        if subgoals.isEmpty then
-          trace[Meta.Tactic.grewrite]"🏁 no more open goals"
-          return subgoals
-      catch e =>
-        trace[Meta.Tactic.grewrite]m!"❌️ Could not apply hint"
-        continue
-    -- tactics:
-    subgoals ← tryTactic subgoals "unfoldSRT" (unfoldSymRflTran)
-    subgoals ← tryTactic subgoals "⟹...⟹" (solveRespectfulN)
-    subgoals ← tryTactic subgoals "unfold flip" (unfoldName ``flip)
-    subgoals ← tryTactic subgoals "unfold impl" (unfoldName ``impl)
-    let sc ← Simp.Context.mkDefault
-    subgoals ← tryTactic subgoals "simp_all" fun g => do
-      match ← simpAll g sc with
-      | (.some r, _) => pure r
-      | (_, _) => throwError "simp_all made no progress"
-    if !(← goal.isAssignedOrDelayedAssigned) then
-      s := { s with term.meta.core.infoState := (← Elab.MonadInfoTree.getInfoState), term.meta.core.messages := (← getThe Core.State).messages }
-      s.restore
-  return goals
-
-def search (Ψ : List MVarId) (prf : Expr) (ρ : HypInfo) (d : Option LocalDecl) : TacticM Unit := do
-  let env ← getEnv
-  let mut hintDB := dbEx.getState env
-  -- See (https://github.com/coq/coq/pull/13969)[Coq]
-  -- Outsource
-  let rels := [``Iff, ``impl, ``Eq, ``flip]
-  for rel in rels do
-    hintDB ← hintDB.insert (← mkAppM ``relation #[.sort 0]) rel
-  let _ ← dfs Ψ hintDB ρ
-  if let .some d := d then
-    let goal ← getMainGoal
-    let newExpr := Expr.app prf d.toExpr
-    let (_, goal) ← goal.assertHypotheses #[{userName := d.userName, type := ← inferType newExpr, value := newExpr}]
-    -- Check other APIs to preserve sequence (may me part of the Hypotheses APIs)
-    let goal ← goal.tryClear d.fvarId
-    replaceMainGoal [goal]
-  else
-    let goal ← getMainGoal
-    let mut subgoals ← goal.apply (← instantiateMVars prf)
-    subgoals ← tryTactic subgoals "unfold flip" (unfoldName ``flip)
-    subgoals ← tryTactic subgoals "unfold impl" (unfoldName ``impl)
-    subgoals ← tryTactic subgoals "unfold impl" (unfoldName ``all)
-    replaceMainGoal subgoals
-
-private def nopSearch (Ψ : List MVarId) (p : Expr) : TacticM Unit := do
-  let goal ← getMainGoal
-  let subgoals ← goal.apply (← instantiateMVars p)
-  replaceMainGoal subgoals
-
 declare_syntax_cat rw
 syntax ("←")? ident : rw
 
@@ -494,15 +298,15 @@ def algorithm (ps : TSyntax `rewrite) : TacticM Unit := withMainContext do
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {name}."
     | .fail => logError "Rewrite failed to generate constraints."
-    | .success ⟨r, t, u, p, _subgoals⟩ =>
+    | .success ⟨r, _, _, p, _subgoals⟩ =>
       -- TODO: set subgoals
-      let (p, r, Ψ') ← subrelInference p r desired
+      let (p, _, Ψ') ← subrelInference p r desired
       let Ψ := Ψ' ++ Ψ
       withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"constraints") do
         trace[Meta.Tactic.grewrite]m!"{← Ψ.mapM (·.getType)}"
       withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"proof") do
         trace[Meta.Tactic.grewrite]m!"{p}"
-      search Ψ p ρ location
+      search Ψ p ρ.rel location
 
 elab rw:rewrite : tactic =>
   algorithm rw
@@ -551,9 +355,9 @@ private def assertConstraints (ps : TSyntax `grw_assert) (ts : Syntax.TSepArray 
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {name}."
     | .fail => logError "Rewrite failed to generate constraints."
-    | .success ⟨r, t, u, p, _subgoals⟩ =>
+    | .success ⟨r, _, _, p, _subgoals⟩ =>
       -- TODO: set subgoals
-      let (p, r, Ψ') ← subrelInference p r desired
+      let (p, _, Ψ') ← subrelInference p r desired
       let Ψ := Ψ' ++ Ψ
       let ts ← ts.getElems.mapM (fun t => do Elab.Tactic.elabTerm t.raw none)
       let Ψ ← Ψ.mapM (fun e => do e.getType)

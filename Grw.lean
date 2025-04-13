@@ -5,3 +5,4 @@ import Grw.Tactic
 import Grw.PaperTactic
 import Grw.Eauto
 import Grw.Attribute
+import Grw.ProofSearch
