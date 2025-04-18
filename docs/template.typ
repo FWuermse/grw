@@ -146,7 +146,7 @@
 
   if show-outline {
     show outline.entry: it => {
-      if it.body() != [Acknowledgments] {
+      if it.body() != [Acknowledgements] {
         return it
       } else []
     }
