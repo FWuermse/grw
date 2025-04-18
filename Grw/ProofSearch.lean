@@ -129,7 +129,7 @@ partial def dfs (goals : List MVarId) (hintDB : DiscrTree (Name × Nat)) (proofR
   withTraceNode `Meta.Tactic.grewrite (fun _ => return m!"goals remaining: {goals.length}") do
   -- Try each goal recursively. This implicitly makes the order of constraints important
   for goal in goals do
-    let (_, rest) := goals.splitAt 1
+    let rest := goals.filter (. != goal)
     let goalType ← goal.getType
     trace[Meta.Tactic.grewrite]m!"trying goal: {goalType}"
     let mut s ← saveState
@@ -138,21 +138,18 @@ partial def dfs (goals : List MVarId) (hintDB : DiscrTree (Name × Nat)) (proofR
         let res ← dfs (subgoals ++ rest) hintDB proofRel
         if res.isEmpty || (← tryClose res) then
           return res
-        if res.length >= goals.length then
-          s.restore
     s ← saveState
     let hintEntries ← hintDB.getMatch goalType
-    let hintEntries := hintEntries.heapSort fun (_, p1) (_, p2) => p1 < p2
+    let hintEntries := hintEntries.insertionSort fun (_, p1) (_, p2) => p1 > p2
     let (names, prios) := hintEntries.unzip
     let matchingHints ← names.mapM mkConstWithFreshMVarLevels
-    for (name, matchingHint) in names.zip matchingHints do
-      trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {name}"
+    for ((name, matchingHint), prio) in names.zip matchingHints |>.zip prios do
+      trace[Meta.Tactic.grewrite]m!"⏩ goal {goalType} matches hint: {name}, apply {prio}%"
       if let .ok subgoals ← tryHyp goal matchingHint then
         let res ← dfs (subgoals ++ rest) hintDB proofRel
         if res.isEmpty || (← tryClose res) then
           return res
-        if res.length >= goals.length then
-          s.restore
+    s.restore
   return goals
 
 def search (Ψ : List MVarId) (prf : Expr) (proofRel : Expr) (d : Option LocalDecl) : TacticM Unit := do
@@ -161,9 +158,9 @@ def search (Ψ : List MVarId) (prf : Expr) (proofRel : Expr) (d : Option LocalDe
   let mut hintDB := dbEx.getState env
   -- See (https://github.com/coq/coq/pull/13969)[Coq]
   -- Outsource
-  let rels := [``Iff, ``impl, ``Eq, ``flip]
-  for rel in rels do
-    hintDB ← hintDB.insert (← mkAppM ``relation #[.sort 0]) ⟨rel, 100⟩
+  let rels := [(``Iff, 100), (``impl, 100), (``Eq, 75), (``flip, 25)]
+  for (n, r) in rels do
+    hintDB ← hintDB.insert (← mkAppM ``relation #[.sort 0]) ⟨n, r⟩
   let _ ← dfs Ψ hintDB proofRel
   if let .some d := d then
     let goal ← getMainGoal
