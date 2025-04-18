@@ -19,7 +19,7 @@ If the rewrite does not occur in the rewrite function of the topmost application
 
 Once we start iterating over non-identity arguments, we collect the recursive proofs and carrier relation types retrieved in line 18 in the variables named `proofs` and `types`. Both of those variables in line 13 represent lists. Whenever we reach recursive identity rewrites after successfully rewriting at least one argument, we create `ProperProxy` metavariables as mentioned in the last section. We explicitly extend the constraint set $Psi$ by the relation and proof metavariables of the identity rewrites. In the case of successful rewrites, we already obtained the constraint set $Psi''$ which contains $r_i$ and $p_i$ at this point.
 
-Finally, all collected types and proofs can be applied to the `Proper` metavariable $?p : mono("Proper") ("types[0]" ==> dots ==> "types[len(types) - 1]" ==> r) mono("fn")$ to generate the rewrite proof. Note that $mono("proofs[0]")$ does not neccessarily refer to the first rewrite, and `fn` does not neccessarily refer to the $e_0$ in case there were identity rewrites. In this algorithm, we also use the simplified notation of metavariable application in which we refer to the only constructor `Proper.proper`.
+Finally, all collected types and proofs can be applied to the `Proper` metavariable $?p : mono("Proper") ("types[0]" ==> dots ==> "types[len(types) - 1]" ==> r) mono("fn")$ to generate the rewrite proof. Note that $mono("proofs[0]")$ does not neccessarily refer to the first rewrite, and `fn` does not neccessarily refer to the argument $e_0$ in case there were identity rewrites. In this algorithm, we also use the simplified notation of metavariable application in which we refer to the only constructor `Proper.proper`.
 
 We mentioned cases where we cannot infer the relation and thus have to fall back on the use of `Subrelation`. This can happen in two cases. The first case is when we do not enter any match-arm because we immediately unify. In this case, our proof is merely the input theorem $rho$. The type of $rho$ is $r space t space u$ for a rewrite relation $r$, the initial term $t$, and the output term $u$. The desired relation in @subterm is thus unused, and we have to infer the implication for the final rewrite using a subrelation $mono("Subrelation") r space (<-)$.
 
@@ -82,8 +82,8 @@ $|$ $forall x : tau, b$ $=>$#i\
   ($Psi$, $r$, $u$, unifiable) := $"unify*"_rho$($b$)\
   if unifiable then:#i\
     return ($Psi$, $r$, $u$, $rho$)#d\
-  ($Psi$, success ($r'$, $"all" (lambda x : tau. b')$, $p$)) := #smallcaps($"ORew"_rho$)$("all" (lambda x : tau. b), r)$\
-  return ($Psi$, $r'$, $forall$ x : $tau$, $b'$, $p$)#d\
+  ($Psi''$, success ($r''$, $"all" (lambda x : tau. b')$, $p$)) := #smallcaps($"ORew"_rho$)$("all" (lambda x : tau. b), r)$\
+  return ($Psi''$, $r''$, $forall$ x : $tau$, $b'$, $p$)#d\
 $|$ $sigma -> tau$ $=>$#i\
   ($Psi$, success ($r$, $"impl" sigma' space tau'$, $p$)) := #smallcaps($"ORew"_rho$)$("impl" sigma space tau, r)$\
   return ($Psi$, $r$, $sigma' -> tau'$, $p$)#d\
@@ -108,7 +108,7 @@ To correct this inconsistency, we propose a modification to the so-far by Coq in
 
 The reason we must perform a subrelation inference to the desired relation passed as argument to `ORew` immediately is to ensure that both terms are proofs over an identical relation which is required by the `Transitive` typeclass defined in @TransitiveDef that we need. When we operate on `Prop` directly, the inferred relation is either $(<-)$ or $(->)$ and therefore already transitive. In the other case, we are in a nested call of the application case and thus work with a metavariable of type $mono("relation" tau)$ that we can force to be transitive during the proof search. This does not change our invariants as we always treat relations general enough so that it does not matter whether we work with metavariables of type $mono("relation " tau)$ or given instances of that type.
 
-During the recursive rewrite on $u$, the first occurrence was already replaced by $g$ and we follow the procedure for application arguments starting at line 13 in @subterm. This would invoke yet another recursive invocation where $f$ is again the function rewrite. This is how we can rewrite a term: for instance $f space a space (f space a space (f space a space (a = a) space b) space b) space b$, directly to $g space a space (g space a space (g space a space (a = a) space b) space b) space b$ and thus truly generate the same rewrites that `Rew` produces. The downside of this approach is that with many occurrences of $f$, we generate almost as many `Subrelation` metavariables as the `Rew` algorithm would for this example. The `Transitive` instances, however, are trivial to solve and can even be closed during the constraint generation as all implications are transitive. Our extension described in @multifalgo can be exchanged with line 12 in the `ORew` algorithm to remidiate the inconsistencies. Note that the function $mono("InferRel")^*$ is a slight modification of the previously seen relation inference algorithm where the desired relation can be passed down.
+During the recursive rewrite on $u$, the first occurrence was already replaced by $g$ and we follow the procedure for application arguments starting at line 13 in @subterm. This would trigger yet another recursive invocation where $f$ is again the function rewrite. This is how we can rewrite a term: for instance $f space a space (f space a space (f space a space (a = a) space b) space b) space b$, directly to $g space a space (g space a space (g space a space (a = a) space b) space b) space b$ and thus truly generate the same rewrites that `Rew` produces. The downside of this approach is that with many occurrences of $f$, we generate almost as many `Subrelation` metavariables as the `Rew` algorithm would for this example. The `Transitive` instances, however, are trivial to solve and can even be closed during the constraint generation as all implications are transitive. Our extension described in @multifalgo can be exchanged with line 12 in the `ORew` algorithm to remidiate the inconsistencies. Note that the function $mono("InferRel")^*$ is a slight modification of the previously seen relation inference algorithm where the desired relation can be passed down.
 
 #figure(
 algo(
@@ -125,7 +125,7 @@ algo(
     return ($Psi'' union Psi''' union {?_"tr"}$, $r$, $u'''$, $?_"tr" space t space (u space e_1 space dots space e_n) space u''' space p_l space p_r$)\
 ], caption: [Correction for the `ORew` algorithm.]) <multifalgo>
 
-Lastly, we have to slightly adjust the algorithm for relation inference to handle both the `Rew` and `ORew` algorithms. We refer to the two rewrite statuses seen in @subterm as `RewriteResult` with the constructors `identity` and `success`. The `success` constructor holds the same tuple as seen in the `Rew` output and the `identity` constructor holds no further information. We will omit this `success` constructor for readability and assume it is used whenever we return the according value and do not explicitly use `identity`. The modified version in @infersubp matches for those two constructors and only infers the relation if necessary.
+Lastly, we have to slightly adjust the algorithm for relation inference to handle both the `Rew` and `ORew` algorithms. We refer to the two rewrite statuses seen in @subterm as `RewriteResult` with the constructors `identity` and `success`. The `success` constructor holds the same tuple as seen in the `Rew` output and the `identity` constructor holds no further information. We will omit this `success` constructor for readability and assume it is used whenever we return the according value and do not explicitly use `identity`. The modified version in @infersubp matches for those two constructors and only infers the relation if necessary. We also use Lean's `imp_self` theorem that can introduce arbitrary identity proofs of given terms by leveraging the `Iff.intro` rule.
 
 #figure(
 algo(
@@ -135,7 +135,7 @@ algo(
   parameters: ($"res" : mono("RewriteResult")$, $t : "Prop"$)
 )[
   match res with\
-  $|$ ($Psi$, `identity`) $=>$#i\ return (`impl_self` : $t <- t$)#d\
+  $|$ ($Psi$, `identity`) $=>$#i\ return (`imp_self` : $t <- t$)#d\
   $|$ ($Psi$, `success` ($r$, $u$, $p$)) $=>$#i\
   if r == ($<-$) then:#i\ 
     return p#d\

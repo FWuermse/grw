@@ -145,6 +145,12 @@
   pagebreak()
 
   if show-outline {
+    show outline.entry: it => {
+      if it.body() != [Acknowledgments] {
+        return it
+      } else []
+    }
+
     outline()
   }
 

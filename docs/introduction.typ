@@ -30,14 +30,23 @@ This form of rewriting only helps us to replace terms that are equal in Lean's t
 
 Let us consider the example of an implementation of a mathematical set in Lean that lets us examine and compare set members. We could start by reusing Lean's lists for our sets. Unlike sets, lists can have duplicate elements, and the order of elements matters. If we want to reason about the equality of two sets $s_1$ and $s_2$, we could not simply check for equality as seen before. If $s_1$ has three elements $[1, 1, 2]$ and $s_2$ has only two elements $[2, 1]$, they would not be considered equal in Lean, although they should represent two equal sets.
 
-In order to compare $l_1$ and $l_2$ as actual sets, we have to define a custom relation for their equivalence:
+In order to compare $s_1$ and $s_2$ as actual sets, we have to define a custom relation for their equivalence:
 
 ```lean
 def setEq {α : Type} : List α → List α → Prop :=
   λ l1 l2 ⇒ ∀ x, x ∈ l1 ↔ x ∈ l2
 ```
 
-This definition ensures that we now represent set equality correctly. We can even show that `setEq` is an equivalence relation by proving the identity, symmetry, and transitivity properties. We can proceed by defining a function to add elements `addElem` that appends an element to the underlying list of our set representation:
+#definition("Equivalence")[
+  ```lean
+structure Equivalence {α : Sort u} (r : α → α → Prop) : Prop where
+  refl  : ∀ x, r x x
+  symm  : ∀ {x y}, r x y → r y x
+  trans : ∀ {x y z}, r x y → r y z → r x z
+  ```
+] <EquivalenceDef>
+
+This definition ensures that we now represent set equality correctly. We can even show that `setEq` is an equivalence relation by proving the identity, symmetry, and transitivity properties. We can proceed by defining a function to add elements `addElem` that appends an element to the underlying list of our set representation. The following code represents a proof that `setEq` is an instance of the `Equivalence` typecalass from @EquivalenceDef and the definition of `addElem` in Lean syntax:
 #pagebreak()
 ```lean
 instance set_eq_equivalence {α : Type} : Equivalence (@setEq α) where
@@ -73,12 +82,12 @@ example : setEq [1,1,2] [2,1] → setEq (addElem 4 [1,1,2])  (addElem 4 [2,1]) :
   rfl
 ```
 
-Generalised rewriting can not only replace terms related by equivalence relations but also relations that are only transitive or only symmetric. This can be useful to replace terms in inequations. For instance, consider the goal $a < c$ for instance and the two hypotheses $mono("haltb") : a < b$ and $mono("hbltc") : b < c$. With generalised rewriting, we can replace the $a$ in the goal with $b$ by with a left-to-right rewrite ```lean rewrite [haltb]```. We can then close the goal using the other hypothesis.
+Generalised rewriting can not only replace terms related by equivalence relations but also relations that are only transitive or only symmetric. This can be useful to replace terms in inequations. For instance, consider the goal $a < c$ for instance and the two hypotheses $mono("haltb") : a < b$ and $mono("hbltc") : b < c$. With generalised rewriting, we could replace the $a$ in the goal with $b$ by with a left-to-right rewrite ```lean grewrite [haltb]```. We can then close the goal using the other hypothesis.
 
 The already present tactic for rewriting with equality and bi-implication in Lean produces three outputs: the new goal after a rewrite occurred, a proof that the rewrite was just, and possible new subgoals that result from the rewrite. Theorem provers, like Coq that already support generalised rewriting, result in the same output information.
 
-In this thesis, we will take a deeper look at the algorithm for generalised rewriting in type theory proposed by Mattheiu Sozeau @sozeau:inria-00628904, compare it to the actual implementation of generalised rewriting in Coq, extract the differences between the two, and show that those algorithms provide the same rewrite proofs. The algorithm described in the literature consists of two parts. The first part generates the rewritten term and proof of the rewrite including holes (or subgoals) that cannot be known when exploring a term. We also refer to this part of the algorithm as constraint generation algorithm, as it leaves some open constraints. The second part of the algorithm solves those open subgoals (or constraints) using a proof search. Throughout this thesis, we will mostly focus on the constraint generation and assert the generated proofs and constraints.
+In this thesis, we will take a deeper look at the algorithm for generalised rewriting in type theory proposed by Mattheiu Sozeau @sozeau:inria-00628904, compare it to the actual implementation of generalised rewriting in Coq, extract the differences between the two, and show that those algorithms provide the same rewrite proofs. For demonstration we also implement those algorithms in Lean 4. The algorithm described in the literature consists of two parts. The first part generates the rewritten term and proof of the rewrite including holes (or subgoals) that cannot be known when exploring a term. We also refer to this part of the algorithm as constraint generation algorithm, as it leaves some open constraints. The second part of the algorithm solves those open subgoals (or constraints) using a proof search. Throughout this thesis, we will mostly focus on the constraint generation and assert the generated proofs and constraints.
 
-Our contributions to the research include two implementations of generalised rewriting algorithms in Lean 4. The first one is a reimplementation of the literature version proposed by Mattheiu Sozeau @sozeau:inria-00628904. The second implementation considers all improvements that have evolved in the Coq code base over the last two decades. Therefore, we provide the first complete description of the actual Coq rewriting algorithm including all those improvements. Those implementations follow same API as Lean's `rewrite` tactic. Our final contribution is an extension of the optimised Coq-inspired algorithm that makes the constraint generation more powerful than Coq's implementation and works for all cases described in the literature. This also includes a proof where we show that the improved algorithm produces the same rewrite proofs. While our implementations generate the same (or more powerful) proofs and constraints as Coq's `rewrite` tactic does, our proof search, the second part of the generalised rewriting algorithm, is currently not as efficient as Coq's typeclass search. This may result in poorer performance for certain rewrites.
+Our contributions to the research include two implementations of generalised rewriting algorithms in Lean 4. The first one is a reimplementation of the literature version proposed by Mattheiu Sozeau @sozeau:inria-00628904. The second implementation considers all improvements that have evolved in the Coq codebase over the last two decades. Therefore, we provide the first complete description of the actual Coq rewriting algorithm including all those improvements. Our implementations follow same API as Lean's `rewrite` tactic. Our final contribution is an extension of the optimised Coq-inspired algorithm that makes the constraint generation more powerful than Coq's implementation and works for all cases described in the literature. This also includes a proof where we show that the improved algorithm produces the same rewrite proofs. While our implementations generate the same (or more powerful) proofs and constraints as Coq's `rewrite` tactic does, our proof search, the second part of the generalised rewriting algorithm, is currently not as efficient as Coq's typeclass search. This may result in poorer performance for certain rewrites.
 
 Notably, our optimised implementation is the only generalised rewriting library for Lean 4 that achieves full consistency with Coq's constraint generation, making it the most reliable choice for formal proofs in Lean.
