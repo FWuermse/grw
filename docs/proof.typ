@@ -7,13 +7,15 @@ We saw that, in the typical case, the improved algorithm generates significantly
 
 #theorem()[When the algorithm $mono("Rew")_rho (t : tau)$ provides a proof for $?_r space t space u$ where $?_r$ is of type $mono("relation") space tau$ and $t != u$ for any given $tau$ and $rho$, then the modified algorithm $mono("ORew")_rho (t, ?_r)$ provides either *(1)* a proof for $?_r space t space u$ if the relation inference $?_r$ succeeds (see @updatedalgo) or *(2)* otherwise a proof of $?_r' space t space u$ where $?_r' : mono("relation" space tau)$ is a fresh metavariable of the same type $mono("relation") space tau$. If $t = u$, the $mono("ORew")$ algorithm with the same arguments returns just the flag `identity` whereas the $mono("Rew")$ algorithm provides a proof $p : ?_r space t space t$ *(3)*.] <theorem1>
 
-#proof()[We proceed with structural induction over the term $t$. The cases for lambda, pi, and arrow only differ by the additional status field. It suffices to show that applying a proof of identity ($?_r space t space t$) is equivalent to leaving $t$ unchanged *(3)*. The application case can be proven by induction over the application subterms $e_0 space dots space e_n$. We start with the base case $n = 2$ (a function with one argument) and have to consider the three cases (identity, success), (success, identity), and (identity, identity) under the assumption that the case (success, success) is not possible for a binary well-formed Lean application. This is because for any $f space e$, the types $f : sigma_0 -> dots -> sigma_n -> tau$ and $e : sigma_0$ cannot be the same, thus cannot both unify. For simplicity we denote the left-hand side of the rewrite theorem $rho$ as $rho_"lhs"$ in the following cases:
+#pagebreak()
+
+#proof()[We proceed with structural induction over the term $t$. The cases for lambda, Pi, and arrow only differ by the additional status field. It suffices to show that applying a proof of identity ($?_r space t space t$) is equivalent to leaving $t$ unchanged *(3)*. The application case can be proven by induction over the application subterms $e_0 space dots space e_n$. We start with the base case $n = 2$ (a function with one argument) and have to consider the three cases (identity, success), (success, identity), and (identity, identity) under the assumption that the case (success, success) is not possible for a binary well-formed Lean application. This is because for any $f space e$, the types $f : sigma_0 -> dots -> sigma_n -> tau$ and $e : sigma_0$ cannot be the same, thus cannot both unify. For simplicity we denote the left-hand side of the rewrite theorem $rho$ as $rho_"lhs"$ in the following cases:
 
 - *$"Case binary application with " n = 2 space (e_0 space e_1)$*
 
   - *Case $e_0 space e_1$ with $rho : r space e_0 space u$*
 
-    This is the base case for our induction over function application arguments where the function unifies and the only argument does not.
+    This is the base case for our induction over function application arguments where the function unifies and the argument $e_1$ does not.
 
     *Proof Resulting from Rew:*\
     Given the outputs $r_e_0 : mono("relation") alpha -> tau$, $u : alpha -> tau$, and $p_e_0 : r_e_0 space e_0 space u$ of $mono("Rew")_rho (e_0)$ and the given outputs $r_e_1 : mono("relation") alpha$ and $p_e_1 : space r_e_1 space e_1 space e_1$ of $mono("Rew")_rho (e_1)$ the main invocation $mono("Rew"_rho) (e_0 space e_1)$ combines the proofs and carrier relations into a final proof of $r_tau (e_0 space e_1) space (u space e_1)$ where $r_tau$ is of type `relation` $tau$. We show the full Lean term including its type and all implicit arguments for all cases to highlight the well-formed composition of the proof terms:
@@ -40,7 +42,7 @@ We saw that, in the typical case, the improved algorithm generates significantly
 
   - *Case $e_0 space e_1$ with $rho : r space e_1 space u$*
 
-    When only the left-hand side of this minimal binary application unifies with $rho_"lhs"$:\
+    When only the left-hand side of this minimal binary application unifies with $rho_"lhs"$:\ \
     *Proof Resulting from Rew:*\
     Given the outputs $r_e_0 : mono("relation") alpha -> tau$ and $p_e_0 : r_e_0 space e_0 space e_0$ of $mono("Rew")_rho (e_0)$ and the given outputs $r_e_1 : mono("relation") alpha$, $u : alpha$, and $p_e_1 : r_e_1 space e_1 space u$ of $mono("Rew")_rho (e_1)$ the `Rew` algorithm combines the proofs and carrier relations into a final proof of $r_tau : (e_0 space e_1) space (e_0 space u)$ where $r_tau$ is of type `relation` $tau$:
 
@@ -100,7 +102,7 @@ We saw that, in the typical case, the improved algorithm generates significantly
 
     *Proof Resulting from Rew:*
 
-    We can prove this similarly to the base case as we always treat applications as binary applications here and read left-to-right. We know from our induction hypothesis that we obtain a single relation, proof, and rewritten term from the rewrite on $e_1 space dots space e_n$. Let the relation be $r_e_n : mono("relation") (alpha_0 space dots space alpha_n space tau)$. As we only consider well-formed applications and we are considering the last element of such an application, we can imply that $r_e_n$ must be an arrow type. Let the recursively obtained proof be $p_e_n : r_e_n (e_0 ' space dots space e_n ') space (e_0 space dots space e_n)$, and thus $e_0 ' space dots space e_n '$ be the rewritten term. Similarly, the recursive invocation $mono("Rew")_rho (e_(n+1))$ outputs $r_e_(n+1) : mono("relation") alpha_(n+1)$, $u : alpha_(n+1)$, $p : r_e_(n+1) space e_(n+1) space u$. $r_tau$ is again the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')$:
+    We can prove this similarly to the base case as we always treat applications as binarily here and read left-to-right. We know from our induction hypothesis that we obtain a single relation, proof, and rewritten term from the rewrite on $e_1 space dots space e_n$. Let the relation be $r_e_n : mono("relation") (alpha_0 space dots space alpha_n space tau)$. As we only consider well-formed applications and we are considering the last element of such an application, we can imply that $r_e_n$ must be an arrow type. Let the recursively obtained proof be $p_e_n : r_e_n (e_0 ' space dots space e_n ') space (e_0 space dots space e_n)$, and thus $e_0 ' space dots space e_n '$ be the rewritten term. Similarly, the recursive invocation $mono("Rew")_rho (e_(n+1))$ outputs $r_e_(n+1) : mono("relation") alpha_(n+1)$, $u : alpha_(n+1)$, $p : r_e_(n+1) space e_(n+1) space u$. $r_tau$ is again the carrier relation for the resulting proof after combining the previous and current application rewrites to a proof of $r_tau (e_0 space dots space e_n space e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1) ')$:
 
     $#align(center + horizon)[
       #box(width: 70%, inset: (top: 15%))[
@@ -167,7 +169,7 @@ We saw that, in the typical case, the improved algorithm generates significantly
       ]
     ]$
 
-    For completeness of this second case, we must consider deeply nested additional occurrences of $rho_"lhs"$ in this case, which would mean that while $e_1 space dots space e_(n+1)$ does not unify with $rho_"lhs"$ directly, it may unify deeper in the term tree. As shortly mentioned during @updatedalgo, we would rewrite the updated term $e_0 ' space e_1 space dots space e_(n+1)$ again in which case $e_0 '$ cannot be rewritten again (rewrite is an idempotent operation) which falls back to the first case where $e_1 space dots space e_n$ can be rewritten. We demand transitivity using a metavariable $?_T : mono("Transitive") space r_tau$ for $r_tau$ (obtained by inference from $r_tau '$) and thus obtain the final proof $p : r_tau space (e_0 space dots space e_n space dots e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1))$ which is equal to the type of the rewrite output by `Rew`.
+    For completeness of this second case, we must consider deeply nested additional occurrences of $rho_"lhs"$ in this instance, which would mean that while $e_1 space dots space e_(n+1)$ does not unify with $rho_"lhs"$ directly, it may unify deeper in the term tree. As shortly mentioned during @updatedalgo, we would rewrite the updated term $e_0 ' space e_1 space dots space e_(n+1)$ again in which case $e_0 '$ cannot be rewritten again (rewrite is an idempotent operation) which falls back to the first case where $e_1 space dots space e_n$ can be rewritten. We demand transitivity using a metavariable $?_T : mono("Transitive") space r_tau$ for $r_tau$ (obtained by inference from $r_tau '$) and thus obtain the final proof $p : r_tau space (e_0 space dots space e_n space dots e_(n+1)) space (e_0 ' space dots space e_n ' space e_(n+1))$ which is equal to the type of the rewrite output by `Rew`.
 
     Both sub-cases hold by our assumption *(1)*.
 
@@ -188,7 +190,7 @@ We saw that, in the typical case, the improved algorithm generates significantly
 
     *Proof Resulting from ORew*
 
-    The subterm algorithm ignores arguments up until they can be rewritten. Thus, the application $e_0 space dots space e_n$ remains unchanged, and we build the Proper constraint based of the relation $r$, the new term $e_(n+1) '$, and the proof $p : r space e_(n+1) space e_(n+1) '$ and curry all unchanged arguments $e_0 space dots space e_n$. The algorithm results in a proof for $r_tau e_0 space dots space e_(n+1) space e_0 space dots space e_(n+1) '$ with $r_tau$ of type `relation` $tau$:
+    The subterm algorithm ignores arguments up until they can be rewritten. Thus, the application $e_0 space dots space e_n$ remains unchanged, and we build the `Proper` constraint based of the relation $r$, the new term $e_(n+1) '$, and the proof $p : r space e_(n+1) space e_(n+1) '$ and curry all unchanged arguments $e_0 space dots space e_n$. The algorithm results in a proof for $r_tau e_0 space dots space e_(n+1) space e_0 space dots space e_(n+1) '$ with $r_tau$ of type `relation` $tau$:
 
     $#align(center + horizon)[
       #box(width: 60%, inset: (top: 35%))[
@@ -218,8 +220,7 @@ We saw that, in the typical case, the improved algorithm generates significantly
 
     *Proof Resulting from ORew*
 
-    The subterm algorithm terminates at line 40 in @subterm and merely returns `identity` which holds under our assumption *(3)* because `Rew` algorithm provides a proof of $r_tau space t space t$ in this case.
-    ]
+    The subterm algorithm terminates at line 40 in @subterm and merely returns `identity` which holds under our assumption *(3)* because `Rew` algorithm provides a proof of $r_tau space t space t$.]
 
     To show that both algorithms result in the same rewrite of propositions, we need to prove another theorem about the transition to implications.
 
@@ -227,7 +228,7 @@ We saw that, in the typical case, the improved algorithm generates significantly
       If $mono("InferRel") (mono("Rew")_rho (t : "Prop"), t)$ for $rho : r space t space u$ provides a proof of a rewrite from $t$ to $u$ of the form $t <- u$ containing metavariables, then the updated algorithm $mono("InferRel") (mono("ORew"_rho) (t, <-), t)$ also provides a proof of a rewrite from $t$ to $u$ of the form $t <- u$ containing metavariables.
     ] <theorem2>
 
-    #proof()[To prove that both algorithms result in the same rewrite proof can be shown with the following case distinction inside `InferRel`:
+    #proof()[We can prove that both algorithms result in the same rewrite proof by examining the following case distinction inside `InferRel`:
 
 - *Case `Rew` returns a proof for $r space t space u$ with $t != u$ and `ORew` infers $r$*
 
@@ -242,4 +243,4 @@ We saw that, in the typical case, the improved algorithm generates significantly
   Using @theorem1 *(3)*, we can imply that `ORew` returns nothing (just an identity flag), and given $t = u$, the `impl_self` theorem creates a proof of $t <- t$ which is equal to the proof $p : r space t space t$ of `Rew` that is transformed to $t <- t$ in line 8 in @infersubp.
 ]
 
-With the proofs for @theorem1 and @theorem2, we have shown that for all proofs generated by the `Rew` algorithm for a given term $t$, the `ORew` algorithm generates proofs of the same type and thus generates the same proofs. When looking at the proof terms, we can also observe that in every mentioned case the proof term and the constraints generated are of equal or smaller size in the `ORew` algorithm. This assures us that even in the worst-case scenario we are guaranteed proofs with no more (even if not significantly less) constraints.
+With the proofs for @theorem1 and @theorem2, we have shown that for all proofs generated by the `Rew` algorithm for a given term $t$, the `ORew` algorithm generates proofs of the same type and thus generates the same proofs. When looking at the proof terms, we can also observe that in every case, the proof term and the constraints generated are of equal or smaller size in the `ORew` algorithm.
