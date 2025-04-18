@@ -55,13 +55,22 @@ private def toHypInfo (term : Expr) : MetaM HypInfo := do
     pure ⟨← mkAppM' term exprs, ← inferType lhs, r, lhs.isSort, lhs, rhs, subgoals.toList⟩
   | _ => throwError "The given rewrite hypothesis {term}:{T} must be of the form ∀ Φs, R αs t u."
 
+
+private def getRelType (r : Expr) : MetaM Expr := do
+  match r with
+  | .app (.const ``relation _) T => pure T
+  | .forallE _ T (.forallE _ T' b _) _ =>
+    if T == T' && b == .sort 0 then
+      return T
+    else
+      throwError "You tried to get the type of a relation but {r} is not a relation."
+  | _ => throwError "You tried to get the type of a relation but {r} is not a relation."
+
 /--
-`fail` not clear right now
 `id` is when we don't rewrite because no subterm can't be unified (ATOM or binary APP).
 `success` successful subterm rewrite.
 -/
 inductive RewriteResult where
-  | fail
   | id
   | success (r : RewriteResultInfo)
 
@@ -160,9 +169,13 @@ partial def subterm (t : Expr) (desiredRel : Option Expr) (l2r : Bool) (depth : 
         let (Ψ'', snd) ← subterm u desiredRel l2r (depth + 1)
         -- TODO: include both shadowed rels in psi
         if let .success res := snd then do
-          let desiredRel := match desiredRel with
-          | some r => r
-          | none => rel
+          let desiredRel ← match desiredRel with
+          | some r => do
+            if (← getRelType (← inferType r)) == .sort 0 then
+              mkAppM ``flip #[mkConst ``impl]
+            else
+              pure r
+          | none => pure rel
           let (p₁, rel, Ψ₁) ← subrelInference p rel desiredRel
           let (p₂, _, Ψ₂) ← subrelInference res.rewPrf res.rewCar desiredRel
           -- Invariant: all desired rels are Prop and transitive and res is of desired rel
@@ -199,7 +212,6 @@ partial def subterm (t : Expr) (desiredRel : Option Expr) (l2r : Bool) (depth : 
           prfArgs := prfArgs ++ [rew.rewPrf]
           u := .app u rew.rewTo
           rewMVars := rew.rewMVars ++ rewMVars
-        | .fail => return (Ψ, .fail)
       if prefixId then
         trace[Meta.Tactic.grewrite] "{srep depth} |APP - ALL ID {t}"
         return (Ψ, .id)
@@ -247,7 +259,6 @@ partial def subterm (t : Expr) (desiredRel : Option Expr) (l2r : Bool) (depth : 
           | throwError "Rewrite of `all λ x ↦ y` resulted in a different (thus wrong) type."
         let u := .forallE n T b i
         pure (Ψ, .success ⟨S, t, u, p, subgoals⟩)
-      | .fail => return ([], .fail)
   | _ => do
     trace[Meta.Tactic.grewrite] "{srep depth} |ATOM {t}"
     pure ([], .id)
@@ -297,7 +308,6 @@ def algorithm (ps : TSyntax `rewrite) : TacticM Unit := withMainContext do
     let (Ψ, res) ← subterm goalType desired l2r 0 ρ
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {name}."
-    | .fail => logError "Rewrite failed to generate constraints."
     | .success ⟨r, _, _, p, _subgoals⟩ =>
       -- TODO: set subgoals
       let (p, _, Ψ') ← subrelInference p r desired
@@ -348,13 +358,14 @@ private def assertConstraints (ps : TSyntax `grw_assert) (ts : Syntax.TSepArray 
     | none => do goal.getType
     | some l => do inferType l.toExpr
     let ρ ← toHypInfo expr
-    let desired : Expr ← match location with
-    | none => do mkAppM ``flip #[mkConst ``impl]
-    | some _ => do pure <| Lean.mkConst ``impl
+    let desired : Expr ← match (location, l2r) with
+    | (none, true) => do mkAppM ``flip #[mkConst ``impl]
+    | (some _, true) => do pure <| Lean.mkConst ``impl
+    | (none, false) => do pure <| Lean.mkConst ``impl
+    | (some _, false) => do mkAppM ``flip #[mkConst ``impl]
     let (Ψ, res) ← subterm goalType desired l2r 0 ρ
     match res with
     | .id => logWarningAt stx m!"Nothing to rewrite for {name}."
-    | .fail => logError "Rewrite failed to generate constraints."
     | .success ⟨r, _, _, p, _subgoals⟩ =>
       -- TODO: set subgoals
       let (p, _, Ψ') ← subrelInference p r desired
@@ -367,9 +378,17 @@ private def assertConstraints (ps : TSyntax `grw_assert) (ts : Syntax.TSepArray 
         else
           throwError "Constraints don't match at idx: {i}, {e} ≠ {ts.get! i}"
       -- Check if p can be applied
-      let _ ← withoutModifyingState do
-        let _ ← goal.apply p
-        -- TODO: maybe check resulting type of first goal with some given "expected" type
+      if let some l := location then
+        let _ ← withoutModifyingState do
+          let newExpr := Expr.app p l.toExpr
+          let (_, goal) ← goal.assertHypotheses #[{userName := l.userName, type := ← inferType newExpr, value := newExpr}]
+          -- Check other APIs to preserve sequence (may me part of the Hypotheses APIs)
+          let goal ← goal.tryClear l.fvarId
+          replaceMainGoal [goal]
+      else
+        let _ ← withoutModifyingState do
+          let _ ← goal.apply p
+          -- TODO: maybe check resulting type of first goal with some given "expected" type
 
 elab rw:grw_assert t:term,+ ";": tactic =>
   assertConstraints rw t

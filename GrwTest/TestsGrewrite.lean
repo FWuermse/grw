@@ -4,6 +4,10 @@ section Examples
 
 set_option trace.Meta.Tactic.grewrite true
 
+/-
+This test checks whether some of the rewrite tests I collected from Coq's test lib an other sources succeed. All tests that are still marked with `sorry` do emit the correct proofs and constraints but the proof search does not solve all constraints. The ones not containing a `sorry` work as expected.
+-/
+
 example : ∀ P Q : Prop , (P ↔ Q) → (Q → P) := by
   intro P Q h
   grewrite [h]
@@ -14,7 +18,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
   grewrite [h]
   simp
 
-example {r : relation Prop} [hp : Subrel r (flip impl)] : r a b → b → a := by
+example {r : relation Prop} (hp : Subrelation r (flip impl)) : r a b → b → a := by
   intro rab hb
   grewrite [rab]
   exact hb
@@ -23,24 +27,28 @@ example {r : relation α} {P : α → Prop} [Proper (r ⟹ flip impl) P] : r a a
   intros h finish
   grewrite [h]
   exact finish
+  -- TODO: missing tactics for Equiv rels in proof search
+  sorry
 
 example {f : α → α} [Proper (r ⟹ r) f] [Proper (r ⟹ flip impl) P] : r a a' → P (f a') → P (f a) := by
   intro h finish
   grewrite [h]
   exact finish
+  -- TODO: missing tactics for Equiv rels in proof search
+  repeat sorry
 
 example {a : α} {P : (α → α) → Prop} [Proper (pointwiseRelation α r ⟹ flip impl) P] : r a a' → P (λ _ => a') → P (λ _ => a) := by
   intro h finish
   grewrite [h]
   exact finish
-
--- TODO: pi example
+  -- TODO: missing tactics for Equiv rels in proof search
+  sorry
 
 example {r : α → α → Prop} [Equiv r] : r a b → r b c → r a c := by
   intro rab rbc
   grewrite [rab]
   assumption
-  -- TODO: missing theorems for Equiv rels in proof search
+  -- TODO: missing tactics for Equiv rels in proof search
   repeat sorry
 
 example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → Q) → Q ∧ (Q → P) := by
@@ -53,7 +61,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → Q ∧ (Q → Q) → Q ∧ (P → Q) := b
   grewrite [H]
   exact finish
 
-example [Subrel Iff (flip impl)] : ∀ P Q : Prop, (P ↔ Q) → Q → P := by
+example (_ : Subrelation Iff (flip impl)) : ∀ P Q : Prop, (P ↔ Q) → Q → P := by
   intros P Q H finish
   grewrite [H]
   exact finish
@@ -97,7 +105,7 @@ variable [PER Rα] [PER Rβ]
 
 example (h: Rα a a') (finish: Pα a') : Pα a := by
   grewrite [h]
-  -- TODO add per theorems to proof search
+  -- TODO add per tactics to proof search
   exact finish
   sorry
 
@@ -156,13 +164,13 @@ Proper (?r ==> ?r8 ==> Basics.flip Basics.impl) and
 example (h: Rα a a') (finish: Pα a' ∧ Pα a' ∧ Pα a' ∧ Pα a' ∧ Pα a' ∧ Pα a') : Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a ∧ Pα a := by
   grewrite [h]
   exact finish
+  -- Missing tactics
+  repeat sorry
 
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) := by
   intros P Q H
   grewrite [H]
   simp
-
---Proof: Subrel.subrelation (impl Q) (impl Q) (Subrel.subrelation impl impl Proper.proper Q Q Proper.proper) P Q H
 
 -- Examples from the Paper
 example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
@@ -196,7 +204,7 @@ Some Coq constraints for problems:
 -/
 
 -- Produces: Subrel Iff (flip impl) ✓
-example (s : Subrel Iff (flip impl)) : ∀ P Q : Prop, (P ↔ Q) → Q → P := by
+example (s : Subrelation Iff (flip impl)) : ∀ P Q : Prop, (P ↔ Q) → Q → P := by
   intros P Q H HQ
   grewrite [H]
   exact HQ
@@ -332,7 +340,7 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) ∧ (Q → P) := by
   apply And.intro <;> simp
 
 -- No rewrite possible on first two proofs.
-example (r₁ : relation Prop) (r₂ : relation Prop) (s : Subrel r₁ (flip impl)) (h₁ : r₁ P Q) (h₂ : r₂ P Q) (H : Prop) (h₃ : r₁ H P) (finish: Q) : H := by
+example (r₁ : relation Prop) (r₂ : relation Prop) (s : Subrelation r₁ (flip impl)) (h₁ : r₁ Q P) (h₂ : r₂ P Q) (H : Prop) (h₃ : r₁ H P) (finish: P) : H := by
   -- show error only on h₁ and h₂
   grewrite [h₁, ← h₂, h₃]
   exact finish

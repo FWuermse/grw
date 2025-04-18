@@ -56,3 +56,4 @@ theorem rewriteExample : setEq [1,2,3] [3,2,1] → setEq (addElem 4 [1,2,3]) (ad
   . sorry
   . sorry
   simp [setEq]
+  sorry

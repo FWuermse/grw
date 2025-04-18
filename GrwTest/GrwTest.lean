@@ -1,3 +1,3 @@
 import GrwTest.ConstraintGeneration.CoqConstraintComparison
 import GrwTest.TestsGrewrite
-import GrwTest.Attribute
+import GrwTest.SetEq

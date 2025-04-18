@@ -138,7 +138,6 @@ partial def dfs (goals : List MVarId) (hintDB : DiscrTree (Name × Nat)) (proofR
         let res ← dfs (subgoals ++ rest) hintDB proofRel
         if res.isEmpty || (← tryClose res) then
           return res
-    s ← saveState
     let hintEntries ← hintDB.getMatch goalType
     let hintEntries := hintEntries.insertionSort fun (_, p1) (_, p2) => p1 > p2
     let (names, prios) := hintEntries.unzip
@@ -149,7 +148,8 @@ partial def dfs (goals : List MVarId) (hintDB : DiscrTree (Name × Nat)) (proofR
         let res ← dfs (subgoals ++ rest) hintDB proofRel
         if res.isEmpty || (← tryClose res) then
           return res
-    s.restore
+    if !(← goal.isAssignedOrDelayedAssigned) then
+      s.restore
   return goals
 
 def search (Ψ : List MVarId) (prf : Expr) (proofRel : Expr) (d : Option LocalDecl) : TacticM Unit := do
@@ -169,6 +169,7 @@ def search (Ψ : List MVarId) (prf : Expr) (proofRel : Expr) (d : Option LocalDe
     -- Check other APIs to preserve sequence (may me part of the Hypotheses APIs)
     let goal ← goal.tryClear d.fvarId
     replaceMainGoal [goal]
+    logInfo "right-to-left RW!"
   else
     let goal ← getMainGoal
     let mut subgoals ← goal.apply (← instantiateMVars prf)
