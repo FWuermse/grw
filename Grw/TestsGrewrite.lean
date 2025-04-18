@@ -335,17 +335,6 @@ example (r : relation α) (g : α → α) (h : r a x) (f: α → β → α → �
   grewrite [h]
   repeat sorry
 
-/- ✓
-Produces
-  ?m1 : Relation A
-  ?m2 : Proper (r ==> ?m1) f
-  ?m3 : Proper (r ==> flip impl) P
--/
-example {f : α → α} [Proper (r ⟹ r) f] [Proper (r ⟹ Iff) P] : r a a' → P (f a') → P (f a) := by
-  intro h finish
-  grewrite [h]
-  repeat sorry
-
 /-
 Produces: Nothing to rewrite.
 -/
@@ -387,65 +376,3 @@ example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) → (Q → P) := by
   intros P Q H
   grewrite [H]
   repeat sorry
-
-/- ✓
-Produces:
-  ?m1 : Proper (?r ==> ?r0 ==> flip impl) and
-  ?m2 : Proper (iff ==> ?r0) (impl Q)
-  ?r : Relation Prop
-  ?m3 : Proper (Iff => ?r) (impl Q)
-  ?r0 : Relation Prop
--/
-example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → P) := by
-  intros P Q H
-  grewrite [H]
-  repeat sorry
-
-/-
-Produces
-  ?m1 : ProperProxy ?r0 (Q -> Q)
-  ?m2 : Proper (?r ==> ?r0 ==> flip impl) And
-  ?m3 : Proper (Iff ==> ?r) (impl Q)
-  ?r : Relation Prop
-  ?r0 : Relation Prop
--/
-example : ∀ P Q : Prop, (P ↔ Q) → (Q → P) ∧ (Q → Q) := by
-  intros P Q H
-  grewrite [H]
-  repeat sorry
-
-/- ✓
-Produces
-  ?m1 : Proper (?r ==> flip impl) (And (Q -> Q))
-  ?m2 : Proper (Iff ==> ?r) (impl Q)
-  ?r : relation Prop
--/
-example : ∀ P Q : Prop, (P ↔ Q) → (Q → Q) ∧ (Q → P) := by
-  intros P Q H
-  grewrite [H]
-  repeat sorry
-
--- No rewrite possible on first two proofs.
-example (r₁ : relation Prop) (r₂ : relation Prop) (h₁ : r₁ P Q) (h₂ : r₂ P Q) (H : Prop) (h₃ : r₁ H P) : H := by
-  -- show error only on h₁ and h₂
-  grewrite [h₁, ← h₂, h₃]
-  repeat sorry
-
--- Reverse rewrite with `←`
-/- Coq constraints:
-TBD
--/
-example {r : α → α → Prop} [Equiv r] : r b a → r b c → r a c := by
-  intro rab rbc
-  grewrite [← rab]
-  repeat sorry
-
-end Examples
-
-example : Subrel r (Iff ⟹ rr) := by
-  constructor
-  rw [Subrelation]
-  intros x y hr
-  rw [respectful]
-  intros a b iff
-  sorry

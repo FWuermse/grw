@@ -7,6 +7,6 @@ Our custom extensible proof search does not find assignments for all constraints
 
 #show heading.where(level: 1): set heading(numbering: none)
 
-= Acknowledgments
+= Acknowledgements
 
-I thank Jannis Limperg for his supervision and useful support with Lean 4 metaprogramming and assistance with making the automated proof search extensible. Furthermore I want to thank Matthieu Sozeau for his helpful comments about Coq's rewriting implementation on the Coq Zulip chat.
+I would like to thank Jannis Limperg for his supervision and useful support with Lean 4 metaprogramming and assistance with making the automated proof search extensible. Furthermore I want to thank Matthieu Sozeau for his helpful comments about Coq's rewriting implementation on the Coq Zulip chat.

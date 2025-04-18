@@ -516,7 +516,6 @@ Coq constraints:
   ?r : relation Prop
   ?s : subrelation Raa (pointwiseRelation Prop ?r)
   ?s0 : subrelation ?r (flip impl)
--/
 example (h: a = b) (finish : b ∧ b) : a ∧ b := by
   grewrite [h]
   . exact finish
@@ -524,7 +523,6 @@ example (h: a = b) (finish : b ∧ b) : a ∧ b := by
   . simp_all
   . rfl
 
-/-
 example (h : p = q) : (p → q) ∧ (p → q) := by
   grewrite [h]
 

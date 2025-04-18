@@ -14,6 +14,7 @@
   advisor: "Jannis Limperg",
   supervisor: "Prof. Dr. Jasmin Blanchette"
 )
+
 #show heading: set block(below: 1.5em, above: 2em)
 
 #show figure: set block(below: 1.5em, above: 2em)
@@ -21,7 +22,7 @@
 #set page(numbering : "1")
 
 #counter(page).update(1)
-#set cite(style: "the-institution-of-engineering-and-technology")
+#set cite(style: "institute-of-physics-numeric")
 
 #include "introduction.typ"
 
