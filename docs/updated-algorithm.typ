@@ -3,6 +3,7 @@
 #import "./theme.typ": *
 #import "./graph.typ": *
 
+#pagebreak()
 = Optimised Algorithm for Rewriting
 
 We have seen five improvements to the `Rew` algorithm for constraint and proof generation of a rewrite. We will now propose an updated algorithm that combines all mentioned optimisations. This roughly resembles the algorithm that has evolved in the Coq core library over the last decade by combining the algorithms for Leibniz Equality rewriting, rewriting under binders, generalised rewriting, and the `setoid_rewrite` module.
@@ -19,7 +20,7 @@ If the rewrite does not occur in the rewrite function of the topmost application
 
 Once we start iterating over non-identity arguments, we collect the recursive proofs and carrier relation types retrieved in line 18 in the variables named `proofs` and `types`. Both of those variables in line 13 represent lists. Whenever we reach recursive identity rewrites after successfully rewriting at least one argument, we create `ProperProxy` metavariables as mentioned in the last section. We explicitly extend the constraint set $Psi$ by the relation and proof metavariables of the identity rewrites. In the case of successful rewrites, we already obtained the constraint set $Psi''$ which contains $r_i$ and $p_i$ at this point.
 
-Finally, all collected types and proofs can be applied to the `Proper` metavariable $?p : mono("Proper") ("types[0]" ==> dots ==> "types[len(types) - 1]" ==> r) mono("fn")$ to generate the rewrite proof. Note that $mono("proofs[0]")$ does not neccessarily refer to the first rewrite, and `fn` does not neccessarily refer to the argument $e_0$ in case there were identity rewrites. In this algorithm, we also use the simplified notation of metavariable application in which we refer to the only constructor `Proper.proper`.
+Finally, all collected types and proofs can be applied to the `Proper` metavariable $?p : mono("Proper") ("types[0]" ==> dots ==> "types[len(types) - 1]" ==> r) mono("fn")$ to generate the rewrite proof. Note that $mono("proofs[0]")$ does not neccessarily refer to the first rewrite, and `fn` does not neccessarily refer to the argument $e_0$ in case there were identity rewrites.
 
 We mentioned cases where we cannot infer the relation and thus have to fall back on the use of `Subrelation`. This can happen in two cases. The first case is when we do not enter any match-arm because we immediately unify. In this case, our proof is merely the input theorem $rho$. The type of $rho$ is $r space t space u$ for a rewrite relation $r$, the initial term $t$, and the output term $u$. The desired relation in @subterm is thus unused, and we have to infer the implication for the final rewrite using a subrelation $mono("Subrelation") r space (<-)$.
 

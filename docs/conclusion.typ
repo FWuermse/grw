@@ -9,4 +9,4 @@ Our custom extensible proof search does not find assignments for all constraints
 
 = Acknowledgements
 
-I would like to thank Jannis Limperg for his supervision and useful support with Lean 4 metaprogramming and assistance with making the automated proof search extensible. Furthermore I want to thank Matthieu Sozeau for his helpful comments about Coq's rewriting implementation on the Coq Zulip chat.
+I would like to thank Jannis Limperg for his supervision and useful support with the Lean 4 metaprogramming and assistance with making the automated proof search extensible. Furthermore, I would like to thank Matthieu Sozeau for his helpful comments about Coq's rewriting implementation on the Coq Zulip chat.

@@ -345,14 +345,14 @@ digraph G {
     G [label=<
         <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
             <TR>
-                <TD WIDTH="10" HEIGHT="30">p</TD>
-                <TD WIDTH="10">
+                <TD WIDTH="20" HEIGHT="30">p</TD>
+                <TD WIDTH="20">
                     <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
                         <TR><TD HEIGHT="15">=</TD></TR>
                         <TR><TD HEIGHT="15">h</TD></TR>
                     </TABLE>
                 </TD>
-                <TD WIDTH="10">q</TD>
+                <TD WIDTH="20">q</TD>
             </TR>
             <TR>
                 <TD COLSPAN="3" HEIGHT="10">&#936; := {}</TD>
@@ -387,14 +387,14 @@ digraph G {
     K [label=<
         <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
             <TR>
-                <TD WIDTH="10" HEIGHT="30">p</TD>
-                <TD WIDTH="10">
+                <TD WIDTH="20" HEIGHT="30">p</TD>
+                <TD WIDTH="20">
                     <TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
                         <TR><TD HEIGHT="15">=</TD></TR>
                         <TR><TD HEIGHT="15">h</TD></TR>
                     </TABLE>
                 </TD>
-                <TD WIDTH="10">q</TD>
+                <TD WIDTH="20">q</TD>
             </TR>
             <TR>
                 <TD COLSPAN="3" HEIGHT="5">&#936; := {}</TD>

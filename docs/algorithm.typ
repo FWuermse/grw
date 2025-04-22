@@ -2,6 +2,7 @@
 #import "./template.typ": *
 #import "./theme.typ": *
 #import "@preview/algo:0.3.4": algo, i, d, comment, code
+#pagebreak()
 = Generalised Rewriting in Literature <PaperAlgo>
 
 We briefly mentioned that the literature algorithm about generalised rewriting consists of two parts. To understand the proof and constraint generation section of that algorithm, we will start by introducing Lean expressions, explain Coq's morphism framework, and finally provide the algorithm specification.
@@ -48,8 +49,6 @@ Expressions of type `mvar` are the kind of Lean expressions that also represent 
 Metavariables of a certain type $Gamma tack tau$ can be assigned with any value $Gamma tack e : tau$ in the context $Gamma$ (hypotheses, theorems, etc.). Both $Gamma$ and $tau$ are part of that metavariable. When we assign a metavariable that represents a goal, we also close the goal. Another way to leverage metavariables is to use them as placeholders in any given Lean term when the value is unknown at the time of creation. It is also possible to share a metavariable $?_x$ across multiple terms. Assigning such a metavariable with a value $v$ also assigns every occurrence of $?_x$ with $v$. Whenever we choose variable names starting with a question mark in this thesis, we refer to metavariables @metaprogrammingbook.
 
 Another concept frequently used in the rewriting algorithm we propose is unification. In Lean 4, unification refers to the assignments of metavariables so that two terms $t$ and $u$ containing them become definitionally equal @ullrich @carneiro2019type. We will refer to two different functions for unification. Given a term $rho : r space a space a'$ with $r : alpha -> alpha -> mono("Prop")$ and $a space a' : alpha$, the function $mono("unify")_rho (t)$ tries to unify t with the left-hand side of $rho$'s applied relation. The function also introduces local hypotheses for bound variables of possible `forallE` or `lam` expressions in $t$, in which case unification is evaluated on the according body. The $mono("unify")$ function returns tuple $(Psi, r, u, b)$. The first element is a set $Psi$ of hypotheses corresponding to the newly introduced binder variables that were not reassigned during unification. The relation $r$ represents the relation over the successful unification and is typically the relation used in $rho$. The term $u$ is the term that was made equal through unification, typically the right-hand side of $rho$. The last argument $b$ is a boolean value that is `true` when unification succeeded and is `false` otherwise. The modified version $mono("unify"^"*")_rho (t)$ has the same behaviour but tries unification on all subterms and succeeds if at least one unification does @sozeau:inria-00628904.
-
-#pagebreak()
 
 == Proof Strategies for Rewriting
 
